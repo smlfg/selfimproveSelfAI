@@ -1,0 +1,140 @@
+# SelfAI + Ollama Planning Layer
+
+Dieses Dokument beschreibt, wie die bestehende SelfAI-Architektur um eine optionale Planner-Schicht ergänzt wird, die über Ollama (z. B. `qwen3:4b-thinking-2507-q4_K_M`) läuft.
+
+---
+
+## Ziele
+
+- Komplexe Aufgaben zuerst strukturieren, bevor sie an die SelfAI-Agenten ausgeführt werden.
+- Planung bewusst auf einem starken, kurzzeitig ausgelasteten Modell (Ollama) ausführen.
+- Ausführung weiterhin über energieeffiziente Backends (AnythingLLM/QNN/CPU/Smolagents/Phi) steuern.
+- Pläne speicherbar, überprüfbar und wiederverwendbar machen.
+
+---
+
+## Rollenverteilung
+
+| Ebene          | Aufgabe                                              | Ressourcen |
+|----------------|-------------------------------------------------------|------------|
+| Planner Layer  | DPPM-Plan generieren (Subtasks, Dependencies, Merge) | Ollama     |
+| Execution Core | Subtasks ausführen, Memory pflegen                   | SelfAI     |
+| Tool Layer     | Spezialfunktionen (Smolagents, APIs, Shell, Phi)     | je nach Plan |
+
+---
+
+## Planner-Anforderungen
+
+1. **Struktur**: Ausgabe in JSON/YAML, z. B. `{ "subtasks": [ ... ], "merge": {...} }`.
+2. **Kontext**: Kennt verfügbare Agenten, Tools, Backends und Memory-Kategorien.
+3. **Robustheit**: Minimiert kaskadierende Fehler; liefert klare Abbruchpunkte.
+4. **Transparenz**: Plan wird vor Ausführung angezeigt und muss bestätigt werden.
+5. **Kurzlebig**: Hoher Ressourcenverbrauch nur während der Planung.
+6. **Feedback**: Speichert Ergebnisse/Status für spätere Analyse oder Re-Runs.
+
+---
+
+## Architektur-Skizze
+
+```
+┌────────────────────────────────────────────┐
+│ Planner Layer (Ollama REST)                │
+│  ├─ planner_ollama_interface.py            │
+│  ├─ /plan Command                          │
+│  └─ Plan Storage (memory/plans/)           │
+└───────────────┬────────────────────────────┘
+                │ Plan (JSON)
+┌───────────────▼────────────────────────────┐
+│ SelfAI Core (selfai/selfai.py)             │
+│  ├─ AgentManager                           │
+│  ├─ MemorySystem                           │
+│  └─ Subtask Dispatcher                     │
+└───────────────┬────────────────────────────┘
+                │ Subtasks
+┌───────────────▼────────────────────────────┐
+│ Execution Backends                         │
+│  ├─ AnythingLLM (NPU)                      │
+│  ├─ QNN Models                             │
+│  ├─ Local GGUF (CPU)                       │
+│  ├─ Smolagents (Tools)                     │
+│  └─ Phi NPU Interface                      │
+└────────────────────────────────────────────┘
+```
+
+---
+
+## Planungs-Fluss
+
+1. **Trigger** (z. B. `/plan <ziel>` oder GUI-Button).
+2. SelfAI ruft `planner_ollama_interface.plan()` auf:
+   - HTTP POST an `http://localhost:11434/api/generate`
+   - Prompt enthält Ziel, verfügbare Agenten, Memory-Übersicht, gewünschtes Output-Schema.
+3. Planner liefert strukturierten Plan (JSON). SelfAI:
+   - zeigt Plan im Terminal,
+   - speichert ihn unter `selfai/memory/plans/<timestamp>.json`,
+   - wartet auf Nutzerbestätigung.
+4. **Ausführung** pro Subtask:
+   - Dispatcher wählt Agent/Backend laut Plan (`engine`, `agent_key`, `tools`).
+   - `MemorySystem` lädt relevanten Kontext.
+   - Ergebnis (inkl. Status) wird im Planfile aktualisiert und in Memory abgelegt.
+5. **Merge**:
+   - Geplante Merge-Schritte ausführen (z. B. Zusammenfassung, Bericht).
+   - Finales Ergebnis im Planfile notieren.
+
+---
+
+## Umsetzungsetappen
+
+### Phase A – Prototype
+- `planner_ollama_interface.py` anlegen (Wrapper um Ollama REST).
+- `/plan`-Command in `selfai/selfai.py` einführen.
+- Plan-Präsentation + Bestätigungspfad.
+- Plan-Storage (JSON) implementieren.
+
+### Phase B – Execution Binding
+- Subtask-Dispatcher erstellen (Mapping Agent ↔ Backend).
+- Smolagents-Interface (`selfai/core/smolagents_interface.py`) bereitstellen.
+- Konfiguration erweitern (`config.yaml` Sektion `planner` und optional `execution`).
+- Status-Updates in Planfile schreiben.
+
+### Phase C – DPPM-Verfeinerung
+- Parallele Subpläne unterstützen (Queue mit Priorität/Parallelität).
+- Merge-Sync implementieren (Warten auf Teilresultate).
+- Planner mit Memory-Vergleichen füttern (Wiederverwendung alter Pläne).
+- Fehlerbehandlung + Replan-Mechanismen (Retry, Alternative).
+
+### Phase D – Polish
+- UI-Visualisierung für Pläne.
+- CLI-Befehle: `/plan list`, `/plan show <id>`, `/plan rerun <id>`.
+- Tests/Schemas für Plan-JSON.
+- Dokumentation & Beispiele.
+
+---
+
+## Risiken & Mitigation
+
+- **Falsche Pläne** → Manuelle Bestätigung, klare Abbruchpfade, Logging.
+- **Overhead** → Planner nur on-demand; Cache für bekannte Ziele.
+- **Backends ändern sich** → zentrale `execution`-Konfig für Feature Flags.
+- **Security** → Prompt sanitizen, Tools (Smolagents) whitelisten.
+- **Ollama nicht erreichbar** → SelfAI fällt ohne Planner zurück auf manuellen Modus.
+
+---
+
+## Offene Fragen
+
+- Sollen Pläne automatisch mit Memory verglichen werden, um alte Lösungen zu adaptieren?
+- Welche Metadata benötigen wir pro Subtask (z. B. erwartete Laufzeit, Erfolgskriterien)?
+- Wie tief soll das Tooling gehen (Shell-Zugriff, HTTP, PythonREPL)?
+- Welche UI-Form (reines Terminal, TUI, Web) wünschen wir langfristig?
+
+---
+
+## Nächste Schritte (kurzfristig)
+
+1. Ollama-Endpunkt testen (`curl` gegen `qwen3:4b-thinking-2507-q4_K_M`).
+2. `planner_ollama_interface.py` stubben & in SelfAI importieren.
+3. `/plan`-Command implementieren und Plananzeige bauen.
+4. Speicherpfad `selfai/memory/plans/` vorbereiten.
+
+Dieses Dokument wird weitergeführt, sobald erste Tests laufen und Erfahrungen vorliegen.

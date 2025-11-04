@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Virtual Environments
+.venv/
+.venv./
+.venv2/
+venv/
+env/
+sdx_ai_env/
+
+# Secrets & Konfiguration
+# Ignoriere die tatsächliche Konfigurations- und Secret-Dateien.
+# Templates und Beispiele sollen eingecheckt werden.
+*.env
+config.yaml
+config_extended.yaml
+
+# Log-Dateien
+*.log
+
+# Temporäre Dateien & Downloads
+downloads/
+Download LLMS/
+
+# WICHTIG: Große Modell-Dateien (mehrere GB!)
+# Diese sollten über Git LFS oder externe Links verwaltet werden
+models/
+*.gguf
+*.bin
+*.onnx
+*.safetensors
+*.pt
+*.pth
+
+# NPU/ONNX Runtime Dateien
+onnxruntime/
+unpaked/
+
+# Archiv & Backup
+archive/
+
+# Daten & Memory (könnte sensible User-Daten enthalten)
+data/
+simple-npu-chatbot/
+selfai/memory/
+
+# IDE & Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS-spezifische Dateien
+.DS_Store
+Thumbs.db
+desktop.ini

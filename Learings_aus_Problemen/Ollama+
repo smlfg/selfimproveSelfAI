@@ -1,0 +1,465 @@
+**TEIL 1 · Code-Ablauf-Dokumentation**
+
+## selfai Runtime
+
+### 📍 Dateien
+- `selfai/selfai.py`
+- `config.yaml`, `config_loader.py`
+- `selfai/ui/terminal_ui.py`
+- `selfai/core/*`
+
+### 🏗️ Aufbau / Struktur
+- `main()` orchestriert Start-up & Event Loop
+- Hilfsfunktionen: `_show_system_resources`, `_build_planner_context`, `_execute_merge_phase`, u. a.
+- Zustandsdateien: `planner_state.json`, `merge_state.json`
+- Abhängigkeiten: `config_loader.AppConfig`, `AgentManager`, `AnythingLLMInterface`, `MemorySystem`, `ExecutionDispatcher`, diverse Ollama-Interfaces
+
+### ▶️ Ablauf (Schritt-für-Schritt)
+
+**Initialisierung**
+1. `python -m selfai.selfai` → `main()`
+2. `load_configuration()` liest `config.yaml`, `.env`, normalisiert Planner/Merge-Provider
+3. UI-Setup (`TerminalUI.banner`, `status`)
+4. `AgentManager` lädt Agent-Definitionen aus `agents/`
+5. `MemorySystem` initialisiert Speicherverzeichnis und Planordner
+6. Planner-Provider (Ollama lokal/cloud) aufgebaut & Healthcheck
+7. Merge-Provider (AnythingLLM default + optionale Ollama-Backends) vorbereitet
+8. AnythingLLM-Verbindung (Fallbacks: QNN, CPU GGUF)
+9. Aktiven Agent setzen (Default aus Konfig oder erster Eintrag)
+10. Systemressourcen anzeigen (RAM/CPU psutil)
+11. CLI Hinweis auf Commands (`/plan`, `/planner`, `/switch`)
+
+**Request-Verarbeitung (freier Chat)**
+1. Nutzer-Eingabe (`input("Du:")`)
+2. Kommandoparsing (`/planner`, `/plan`, `/switch`, `quit`)
+3. Bei freiem Prompt: aktiver Agent via `AgentManager`
+4. Memory-Kontext laden: `MemorySystem.load_relevant_context(agent)`
+5. Systemprompt + Kontext + Userprompt → AnythingLLM (Streaming via `stream_generate_response`)
+6. UI-Streaming (`TerminalUI.stream_prefix` + `streaming_chunk`)
+7. Gespräch speichern: `MemorySystem.save_conversation`
+8. Spinner/Status aktualisieren, Loop fortsetzen
+
+**Planer Workflow (`/plan <Ziel>`)**
+1. Planner-Kontext erstellen (Agenten + Memory-Zusammenfassung)
+2. Provider-Round-Robin (zuletzt aktiver zuerst)
+3. Streamender Ollama-Aufruf (`PlannerOllamaInterface.plan`)
+4. `validate_plan_logic` → Warnungen/Fehler anzeigen
+5. UI-Bestätigung (Plan übernehmen, Ausführen)
+6. Plan speichern (`MemorySystem.save_plan`)
+7. Subtasks ausführen (`ExecutionDispatcher` mit Streaming, Retries)
+8. Merge-Backend wählen (`_select_merge_backend`)
+9. `_execute_merge_phase` sammelt Subtask-Outputs, erzeugt Merge-Prompt, streamt Ergebnis über gewähltes Backend
+10. Metadaten zurück in Plan-Datei (Provider, Agent, Ergebnis-Pfad)
+
+### 🔗 Abhängigkeiten
+
+**Basis-Layer**
+- Python ≥3.10 (Projekt nutzt Pattern Matching, Typ-Hints)
+- `httpx`, `psutil`, `python-dotenv`, `PyYAML`
+- Optionale Hardware: Qualcomm NPU (QNN), ansonsten CPU GGUF via llama.cpp
+
+**Integration-Layer**
+- AnythingLLM API (`/api/chat`, Stream API)
+- Lokale Ollama-Instanz (`/api/generate`, `/api/tags`)
+- Dateisystem für Memory & Pläne (`selfai/memory/`)
+
+**Request-Chain**
+User Input  
+→ Command Parser (`selfai.py`)  
+→ AgentManager (`agent_manager.get`)  
+→ MemorySystem (`load_relevant_context`)  
+→ LLM Interface (AnythingLLM/NPU/CPU)  
+→ Streaming UI (`TerminalUI`)  
+→ Memory Save (`MemorySystem.save_conversation`)  
+→ Optional: Plan Execution (`ExecutionDispatcher`)  
+→ Merge Backend (`MergeOllamaInterface` oder AnythingLLM)
+
+### ⚠️ Kritische Dependencies
+
+| Komponente              | Fallback                          | Kritikalität |
+|-------------------------|-----------------------------------|--------------|
+| AnythingLLM API         | QNN/CPU GGUF (eingeschränkt)      | CRITICAL     |
+| Ollama Planner Provider | Weitere Provider, sonst disabled  | HIGH         |
+| Agent-Definitionen      | Fehlende Agenten → Programm Ende  | HIGH         |
+| `config.yaml`           | Template Defaults (eingeschränkt) | MEDIUM       |
+| Memory-Verzeichnis      | Auto-Anlage                       | MEDIUM       |
+
+### 🚨 Error Handling
+- AnythingLLM/Ollama HTTP → `PlannerError`, UI-Warnungen, Provider-Switch
+- Stream-Fehler → UI Warnung, Fallback auf Block-Modus
+- ExecutionDispatcher retryt Subtasks (max 3 Gesamtversuche)
+- Dateischreibfehler → UI-Fehler, Abbruch des Plans
+- Merge ohne Resultate → Warnung, kein Merge-Call
+
+### 📊 Performance (aktueller Stand)
+- Instrumentierung noch nicht implementiert; Messpunkte vorgesehen:
+  - Planner Roundtrip (per Provider)
+  - Subtask Runtime & Retry Count
+  - Merge Latenz
+  - Memory Load/Speicherzeit
+
+---
+
+## config_loader
+
+### 📍 Dateien
+- `config_loader.py`
+- `config.yaml`, `config.yaml.template`, `config_extended.yaml`
+
+### 🏗️ Aufbau
+- Dataclasses: `AppConfig`, `PlannerConfig`, `MergeConfig`, `PlannerProviderConfig`, …
+- `_normalize_config` unterstützt altes & neues Schema
+- `_resolve_env_template` ersetzt `${VAR}` Platzhalter
+- `load_configuration` liest YAML + Umgebungsvariablen, validiert Einträge
+
+### ▶️ Ablauf
+1. `.env` lesen (`load_dotenv`)
+2. YAML parsen
+3. Normalize: sicherstellen, dass Planner/Merge Provider Listen existieren
+4. API-Key Auflösung (ENV > Datei)
+5. Dataclasses instanziieren; Headers aus Umgebungsvariablen injizieren
+6. Validierung: Pflichtfelder (`base_url`, `model`), Datentypen, Standardwerte
+
+### 🔗 Abhängigkeiten
+- `python-dotenv`, `PyYAML`, Standardbibliothek
+- `.env` mit `API_KEY`
+- `config.yaml` (oder Template fallback)
+
+### ⚠️ Kritisch
+- Fehlender API Key → `ValueError` beim Start
+- Invalid YAML → Programmabbruch mit Fehlerhinweis
+
+---
+
+## Terminal UI
+
+### 📍 Dateien
+- `selfai/ui/terminal_ui.py`
+
+### 🏗️ Aufbau
+- Klasse `TerminalUI` (Statusmeldungen, Spinner, Streaming, Auswahlmenüs)
+- Unterstützt Farben (Colorama fallback)
+- Methoden: `status`, `start_spinner`, `stream_prefix`, `streaming_chunk`, `choose_option`, `confirm_plan`, `list_agents`, `show_plan`
+
+### ▶️ Ablauf
+- Wird in `main()` instanziiert
+- Alle User-facing Messages laufen über `TerminalUI`
+- Stream-Ausgaben werden per `stream_prefix` + `streaming_chunk` realisiert
+- Auswahldialog (Merge/Planner Provider) via `choose_option`
+
+### 🔗 Abhängigkeiten
+- Optional `colorama` (Windows)
+- Standardbibliothek (threading, time, itertools)
+
+---
+
+## Agent Management
+
+### 📍 Dateien
+- `selfai/core/agent_manager.py`
+- `selfai/core/agent.py`
+- `agents/*.yaml`
+
+### 🏗️ Aufbau
+- `Agent` Dataclass (Key, Display Name, System Prompt, Workspace, Memory-Kategorien, Farbe, Beschreibung)
+- `AgentManager` lädt YAML-Dateien, hält aktive Auswahl, wechselt Agenten
+- Methoden: `list_agents`, `switch_agent`, `get`, `active_agent`
+
+### ▶️ Ablauf
+1. Beim Start: Verzeichnis `agents/` scannen, YAML laden
+2. Aktiver Agent per Konfig oder Standard
+3. `switch_agent` erlaubt Wechsel via Name/Index
+4. `list_agents` für UI-Anzeige, inklusive Farbe & Workspace
+
+### 🔗 Abhängigkeiten
+- `yaml.safe_load`
+- Struktur der Agent YAMLs (Key, workspace_slug, system_prompt, Memory-Kategorien)
+
+---
+
+## Memory System
+
+### 📍 Dateien
+- `selfai/core/memory_system.py`
+
+### 🏗️ Aufbau
+- `MemorySystem` verwaltet Datenpfade: Gespräche (`memory/conversations/`), Pläne (`memory/plans/`)
+- Funktionen: `save_conversation`, `load_relevant_context`, `save_plan`, `memory_dir` properties
+- Plant weitere Features: Kategorisierung, Indizes
+
+### ▶️ Ablauf
+1. Konstruktor legt Basisordner an (falls nicht vorhanden)
+2. `save_conversation` speichert JSON mit Agent, Prompt, Antwort
+3. `load_relevant_context` (aktuell heuristisch – lädt letzte Einträge)
+4. `save_plan` legt Plan-Datei (Timestamp + slug) im Plan-Ordner ab
+
+### 🔗 Abhängigkeiten
+- `pathlib`, `json`
+- Dateisystemzugriff mit Schreibrechten
+
+---
+
+## AnythingLLM Interface
+
+### 📍 Dateien
+- `selfai/core/anythingllm_interface.py`
+
+### 🏗️ Struktur
+- Klasse `AnythingLLMInterface`
+- Methoden: `__init__`, `chat` (non-stream), `stream_generate_response`
+- HTTP via `httpx` (Sitzung), Streaming per `client.stream`
+
+### ▶️ Ablauf
+- Instanziierung mit Base URL, API Key, Workspace Slug
+- `stream_generate_response`: Sendet `{"message": ..., "systemPrompt": ..., …}` an `/api/chat`
+- Erwartet Text-Stream; yields Chunks an Aufrufer
+- Fehler → `raise AnythingLLMError`
+
+### 🔗 Abhängigkeiten
+- `httpx`
+- AnythingLLM Server mit gültigem Workspace & Key
+
+---
+
+## Planner (Ollama)
+
+### 📍 Dateien
+- `selfai/core/planner_ollama_interface.py`
+- `selfai/core/planner_validator.py`
+
+### 🏗️ Struktur
+- `PlannerOllamaInterface`: `plan`, `_build_prompt`, `_parse_plan`, `healthcheck`
+- `PlannerContext` Dataclass (Agentliste, Memory-Summary)
+- Validator: `validate_plan_structure`, `validate_plan_logic`
+
+### ▶️ Ablauf
+1. Prompt-Template injiziert Ziel, Agenten, Erinnerungen, Regeln (DPPM, JSON Schema, Clarification)
+2. HTTP POST `{"model": ..., "prompt": ..., "stream": True, "format": "json"}` an `/api/generate`
+3. Streaming-Chunks → Progress Callback (CLI print)
+4. Rohantwort JSON-parsen, Code-Fences strippen, `END_OF_PLAN` beachten
+5. Validierung: Struktur (IDs, Agent Keys, Merge Steps), Logik (Duplikate, Dependencies, Merge-Strategie)
+6. Fehler → `PlannerError` mit Plan-Snapshot für Debug
+
+### 🔗 Abhängigkeiten
+- Ollama Server mit passender Modell-ID
+- `httpx`
+- Agent Keys/Engines aus SelfAI
+
+---
+
+## Execution Dispatcher
+
+### 📍 Dateien
+- `selfai/core/execution_dispatcher.py`
+
+### 🏗️ Struktur
+- Klasse `ExecutionDispatcher`
+- Kernmethoden: `run`, `_run_subtask`, `_invoke_llm`, `_update_task_status`, `_save_plan`
+- Arbeitet sequentiell (Parallelisierung Phase B TODO)
+
+### ▶️ Ablauf
+1. Lädt Plan JSON
+2. Initialisiert Statusfelder (`pending`)
+3. Für jeden Subtask:
+   - Agent & Engine validieren
+   - Prompt bauen (`Subtask {id}: objective\nNOTES: ...`)
+   - LLM Call via AnythingLLM (Streaming fallback)
+   - Ergebnis speichern (MemorySystem)
+   - Status aktualisieren (`running` → `completed`/`failed`)
+4. Fehler → `ExecutionError`, stoppt Ausführung
+
+### 🔗 Abhängigkeiten
+- AnythingLLM Interface
+- MemorySystem zum Speichern
+- TerminalUI für Statusmeldungen
+
+---
+
+## Merge Backend
+
+### 📍 Dateien
+- `selfai/core/merge_ollama_interface.py` (Ollama Merge)
+- `selfai/selfai.py` (`_execute_merge_phase`, `_select_merge_backend`)
+
+### 🏗️ Struktur
+- `MergeOllamaInterface`: Streaming/Non-stream Chat für Resultat-Zusammenführung
+- `_execute_merge_phase` koordiniert Ergebnisaggregation, Prompt, Streaming, Metadaten
+
+### ▶️ Ablauf
+1. Sammeln aller `result_path` aus Subtasks
+2. Zusammenbau finaler Merge-Prompt (Strategie, Schritte, Outputs)
+3. Auswahl Merge-Backend (AnythingLLM default, optional Ollama)
+4. Streaming mit UI Feedback; Fallback Non-Stream
+5. Speicherung Merge-Ergebnis + Metadaten (Provider, Model, Timeout, Tokens)
+
+### 🔗 Abhängigkeiten
+- Merge Provider Konfiguration (Ollama URL/Model oder AnythingLLM)
+- MemorySystem für Resultat-Load & Save
+
+---
+
+**TEIL 2 · Dependencies & Fundament**
+
+### Ebene 1 · Hardware & Runtime
+- Python ≥3.10 im virtuellen Environment
+- Optional Qualcomm NPU (QNN) mit kompatiblen Modellen
+- Mind. 16 GB RAM empfohlen (Planner + Merge LLM parallel)
+
+### Ebene 2 · System-Level
+- `httpx` (HTTP)
+- `psutil` (Systemmonitor)
+- `python-dotenv`, `PyYAML`
+- `llama-cpp-python` (CPU/QNN Fallback)
+- Lokaler AnythingLLM Dienst (`http://localhost:3001`)
+- Lokale Ollama Instanz (`http://localhost:11434`)
+
+### Ebene 3 · Python Requirements (Auszug)
+- `httpx>=0.26`
+- `python-dotenv>=1.0`
+- `PyYAML>=6.0`
+- `tabulate`, `numpy`, `pyarrow` (für weitere Tools)
+- `llama-cpp-python==0.3.16` (Wheel Build → Visual Studio Build Tools erforderlich auf Windows ARM)
+
+### Ebene 4 · SelfAI Core Module
+- `config_loader` (Konfig)
+- `agent_manager`, `agent`
+- `memory_system`
+- `anythingllm_interface`, `local_llm_interface`, `npu_llm_interface`
+- `planner_ollama_interface`, `merge_ollama_interface`, `execution_dispatcher`
+- `planner_validator`, `tool_calling_ollama_interface`
+
+### Ebene 5 · Daten & Konfiguration
+- `config.yaml` (API Keys, Planner/Merge Provider)
+- `agents/*.yaml` (Agent-Spezifika)
+- `memory/` (Gesprächsdaten, Pläne, Zustände)
+- `planner_state.json`, `merge_state.json` (Persistente Auswahl)
+- Optionale `.env` für Secrets
+
+### Ebene 6 · UI & Entry
+- `selfai/ui/terminal_ui.py`
+- `selfai/selfai.py` (Entry Point)
+
+### Externe Systeme (kritisch)
+- AnythingLLM ( erreichbar, Workspace vorhanden, API Key gültig)
+- Ollama Modelle (Planner-Modelle wie `qwen3:4b-thinking-2507-q4_K_M`, Merge-Modelle optional)
+- Dateisystem Schreibrechte (Memory/Plans)
+
+### Startup-Abhängigkeiten (Graphisch)
+start selfai.py  
+→ `.env` laden  
+→ `config.yaml` → `AppConfig`  
+→ init Planner/Merge Provider & Healthchecks  
+→ init MemorySystem (Ordner anlegen)  
+→ init AgentManager (YAML laden)  
+→ init LLM Backend (AnythingLLM > QNN > CPU)  
+→ UI starten  
+→ Event Loop (`/plan`, `/switch`, freier Chat)
+
+### Request-Handling Kette
+`User Message`  
+→ `agent_manager.active_agent`  
+→ `memory_system.load_relevant_context`  
+→ `llm_interface.stream_generate_response` (AnythingLLM)  
+→ `TerminalUI` streamt  
+→ `memory_system.save_conversation`  
+→ (Optional) `planner_ollama_interface.plan` + `execution_dispatcher` + `_execute_merge_phase`
+
+---
+
+**TEIL 3 · Fortschritt Tracking**
+
+### Projektstatus (aktualisiert)
+
+| Phase | Feature/Komponente | Status | Fortschritt | Blocker | Verantwortlich |
+|-------|--------------------|--------|-------------|---------|-----------------|
+| Foundation | Struktur & Konfig (`config_loader`, Agents, Memory dirs) | ✅ | 100% | — | Team |
+| Foundation | AnythingLLM Interface (`core/anythingllm_interface.py`) | ✅ | 100% | — | Team |
+| Foundation | Terminal UI (`ui/terminal_ui.py`) | ✅ | 100% | — | Team |
+| Planner Phase | Planner Integration (Ollama) | ✅ | 100% | — | Team |
+| Planner Phase | Plan Validator & Warnings | ✅ | 100% | — | Team |
+| Execution Phase | Execution Dispatcher (Subtasks) | ✅ | 100% | — | Team |
+| Execution Phase | Merge Handling & Provider Auswahl | ✅ | 100% | — | Team |
+| Memory Phase | Conversation Storage | ✅ | 100% | — | Team |
+| Memory Phase | Kontext-Laden (heuristisch) | ✅ | 100% | — | Team |
+| Memory Phase | Auto-Kategorisierung | ⏸ | 0% | LLM-Design noch offen | TBD |
+| Monitoring | Performance Metrics & Telemetrie | 📋 | 0% | Instrumentierung fehlt | TBD |
+| UX Enhancements | Fehlermeldungen/Tooltips | 🔄 | 70% | Merge/Planner Feedback vorhanden, weitere Verfeinerung möglich | Team |
+| Testing | Automatisierte Tests | 📋 | 0% | Teststrategie noch nicht definiert | TBD |
+| Documentation | Laufende Doku (dieses Dokument) | ✅ | laufend | — | Code Agent |
+
+Gesamtschätzung: ~75 % Kernfunktionalität, Rest: Auto-Kategorisierung, Telemetrie, Tests.
+
+### Komponenten-Status (Detail)
+
+1. **AnythingLLM Interface**  
+   Status: Produktiv. Streaming & Non-Streaming implementiert, Fehler propagiert.
+
+2. **AgentManager**  
+   Status: Produktiv. Laden/Switch funktional, UI Integration vorhanden.
+
+3. **MemorySystem**  
+   Status: Produktiv für Speichern/Laden. TODO Auto-Kategorisierung & Indizes.
+
+4. **Planner & Validator**  
+   Status: Produktiv. JSON-Schema, Clarification-Regeln, Warnmeldungen.
+
+5. **Execution Dispatcher**  
+   Status: Produktiv. Streaming, Retries, Statuspersistenz.
+
+6. **Merge Pipeline**  
+   Status: Produktiv. Backend-Selektion, Streaming, Metadaten persistiert. Erweiterbar für weitere LLMs.
+
+### Offene TODOs / Technical Debt
+
+- Auto-Kategorisierung der Memories (LLM-Aufruf + Index)
+- Kontext-Ranking (statt heuristisch letzte Einträge)
+- Performance Telemetrie (Messpunkte, Logging)
+- Einheitliche Retry/Backoff-Strategie (Planner/Execution/Merge)
+- Integrationstests (Planflow, Merge-Backends, Fehlerpfade)
+- Model-agnostische Konfiguration (Definition pro Subtask-Engine)
+- Dokumentation für Agent YAML Schema (z. B. README Abschnitt)
+
+### Broken Chains / Risiken
+
+- Wenn Planner JSON Struktur ändert → Validator muss aktualisiert werden
+- Windows ARM Wheel-Builds (numpy, llama-cpp-python) benötigen VS Build Tools
+- Timeout-Konfiguration pro Provider wichtig (Streaming kann >180 s dauern)
+- Merge-Backends ohne Streaming-Fähigkeit → Fallback muss erfolgreich sein
+- AnythingLLM Ausfälle: Aktuell kein automatischer Provider-Fallback (z. B. CPU-Modell für Subtasks)
+
+### Session Template (für zukünftige Arbeit)
+```
+## SESSION: 2025-10-30 – [Feature]
+
+### 🎯 Goal
+- …
+
+### ✅ Ergebnisse
+- …
+
+### 🔗 Ablauf
+1. …
+2. …
+
+### 📦 Dependencies
+- …
+
+### 🚨 Issues
+- …
+
+### 📊 Tests
+- …
+
+### 📋 TODO
+- [ ] …
+```
+
+---
+
+**Zusammenfassung / Nächste Schritte**
+- Auto-Kategorisierung & Kontext-Ranking entwerfen (Abhängigkeit: verfügbares LLM oder Ruleset)
+- Telemetrie/Logging Punkte festlegen (Planner Latenz, Merge Dauer, Memory IO)
+- Teststrategie definieren (Mock AnythingLLM/Ollama, CLI Command Tests)
+- Dokumentation nach jeder Session aktualisieren (Status-Tabellen, offene Blocker)
+
+Dieses Dokument bildet die aktuelle Wissensbasis. Bitte nach jeder Implementierungsrunde anpassen, damit Fortschritt, Abhängigkeiten und offene Punkte immer sichtbar bleiben.

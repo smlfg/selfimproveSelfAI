@@ -1,0 +1,179 @@
+ Verstanden. Ich übernehme die Rolle des erfahrenen Software-Architekten und Reviewers
+  und werde das Projekt sowie den bisherigen Entwicklungsprozess kritisch analysieren.
+
+  ---
+
+  Projektstatus und Herausforderungen
+
+  Aktueller Stand des Projekts:
+  Das Projekt SelfAI ist eine Python-Anwendung, die darauf abzielt, mit lokalen Large
+  Language Models (LLMs) zu interagieren. Ein Fallback-Mechanismus für das Laden von
+  LLMs wurde implementiert. Die Anwendung läuft in einer Python-virtuellen Umgebung
+  auf einem Linux-ähnlichen System (vermutlich WSL oder Docker). Derzeit ist die
+  Anwendung nicht funktionsfähig, da sie keines der konfigurierten LLM-Modelle laden
+  kann.
+
+  Größte technische und organisatorische Hürden:
+
+   * Technische Hürden:
+       * Umgebungskonfiguration: Anfängliche Probleme mit der Auffindbarkeit des
+         Python-Interpreters (pyhton-Tippfehler, python-Alias zum Microsoft Store).
+       * Abhängigkeitsmanagement: Fehlende requirements.txt führte zu manueller,
+         iterativer Installation von llama_cpp und PyYAML.
+       * LLM-Ladefehler: Die Kernfunktionalität (Laden von GGUF-Modellen mittels
+         llama-cpp-python) schlägt konsistent fehl, selbst nach:
+           * Versuch mit verschiedenen GGUF-Modellen.
+           * Neuinstallation von llama-cpp-python mit BLAS-Optimierung.
+           * Neuinstallation von llama-cpp-python mit QNN-Flags und korrekt
+             identifiziertem QNN SDK-Pfad.
+       * NPU-Integration: Die Aktivierung der NPU-Beschleunigung (Qualcomm Hexagon DSP)
+         über llama-cpp-python erweist sich als äußerst komplex und undokumentiert. Die
+         CMAKE_ARGS für QNN scheinen nicht wie erwartet zu funktionieren oder die
+         Build-Umgebung ist unzureichend.
+       * Fehlermeldungen: Die generische Fehlermeldung "Failed to load model from file"
+         in llama-cpp-python ist irreführend und erschwert die Diagnose.
+   * Organisatorische Hürden:
+       * Fehlendes Dependency Management: Das Fehlen einer requirements.txt und einer
+         klaren Anleitung zur Einrichtung der virtuellen Umgebung führte zu erheblichen
+         Verzögerungen und manueller Fehlersuche.
+       * Mangelndes Wissensmanagement: Die spezifischen Anforderungen für die
+         NPU-Integration waren weder im Projekt noch in der
+         llama-cpp-python-Dokumentation leicht zugänglich.
+       * Kommunikation: Wiederholte Anfragen des Benutzers und Schwierigkeiten bei der
+         Übermittlung von Tool-Ausgaben deuten auf Kommunikationsprobleme hin.
+
+  ---
+
+  Learnings und Fehlerquellen
+
+  Wichtigste Learnings:
+
+   * Reproduzierbarkeit ist König: Ohne eine requirements.txt und eine klare Anleitung
+     zur virtuellen Umgebung ist ein Projekt nicht reproduzierbar.
+   * Hardware-Beschleunigung ist komplex: Die Integration von LLM-Bibliotheken mit
+     spezifischer Hardware (insbesondere NPUs) erfordert tiefgreifendes Wissen über die
+     Build-Systeme der Bibliotheken und die SDKs der Hardware-Hersteller.
+   * Fehlermeldungen können irreführend sein: Eine generische Fehlermeldung kann die
+     eigentliche Ursache (z.B. fehlende Hardware-Beschleunigung) verschleiern.
+
+  Ursachen der Probleme:
+
+   * Tooling/Abhängigkeiten:
+       * pip install kann eine erfolgreiche Installation melden, auch wenn die
+         Kompilierung für spezifische Hardware-Backends nicht erfolgreich war oder die
+         CMAKE_ARGS ignoriert wurden.
+       * Die llama-cpp-python-Bibliothek ist in Bezug auf NPU-Integration noch nicht
+         ausgereift oder gut dokumentiert.
+       * Die externally-managed-environment-Schutzfunktion von Python-Distributionen
+         erfordert die konsequente Nutzung von virtuellen Umgebungen.
+   * Struktur:
+       * Das Fehlen einer zentralen Konfiguration für LLM-Modellpfade und
+         Fallback-Strategien.
+   * Kommunikation:
+       * Die Diskrepanz zwischen der Erwartung des Benutzers (NPU-Optimierung) und der
+         technischen Machbarkeit/Dokumentation von llama-cpp-python.
+       * Die Schwierigkeit, detaillierte technische Informationen (wie SDK-Pfade oder
+         spezifische Umgebungsvariablen) vom Benutzer zu erhalten.
+
+  ---
+
+  Dokumentations-Check
+
+  Aktueller Zustand der Dokumentation:
+  Das Projekt verfügt über keine explizite Dokumentation für die Einrichtung der
+  Entwicklungsumgebung, das Abhängigkeitsmanagement oder die Integration von
+  Hardware-Beschleunigung. Die llama-cpp-python-Dokumentation ist in Bezug auf
+  NPU-Integration unzureichend.
+
+  Verbesserung der Dokumentation:
+
+   * `README.md` erweitern: Das README.md sollte eine detaillierte "Getting
+     Started"-Anleitung enthalten, die folgende Punkte abdeckt:
+       * Voraussetzungen (Python-Version, OS).
+       * Schritte zur Erstellung und Aktivierung einer virtuellen Umgebung.
+       * Befehl zur Installation aller Abhängigkeiten aus requirements.txt.
+       * Anleitung zum Herunterladen und Platzieren von LLM-Modellen.
+       * Einen Abschnitt "Hardware-Beschleunigung (NPU/GPU)", der die spezifischen
+         Schritte und CMAKE_ARGS für die NPU-Integration (falls erfolgreich) oder die
+         GPU-Integration (OpenCL) detailliert beschreibt.
+   * `requirements.txt` erstellen: Eine vollständige Liste aller Python-Abhängigkeiten
+     mit genauen Versionsnummern.
+   * "Troubleshooting"-Sektion: Eine Sektion im README.md oder einem separaten
+     TROUBLESHOOTING.md, die häufige Fehler (wie ModuleNotFoundError,
+     externally-managed-environment, LLM-Ladefehler) und deren Lösungen beschreibt.
+
+  ---
+
+  Review und Feedback
+
+  Strukturiertes Review:
+
+   * Code:
+       * Die Implementierung des Fallback-Mechanismus für LLMs ist eine gute
+         Verbesserung der Robustheit.
+       * Die Trennung der Verantwortlichkeiten in selfai.py, agent_manager.py und
+         local_llm_interface.py ist gut.
+       * Die Fehlerbehandlung beim Laden des Modells ist vorhanden, könnte aber
+         spezifischer sein, um zwischen Dateifehlern und Kompatibilitätsproblemen zu
+         unterscheiden.
+   * Struktur:
+       * Die Projektstruktur ist logisch und modular.
+       * Das Fehlen einer requirements.txt ist ein struktureller Mangel.
+   * Prozesse:
+       * Der Entwicklungsprozess war bisher stark von reaktiver Fehlersuche geprägt,
+         anstatt von proaktiver Umgebungs- und Abhängigkeitsplanung.
+
+  Konkrete Maßnahmen zur Verbesserung:
+
+   1. Maßnahme: Implementierung eines robusten Dependency Managements.
+       * Was: Erstellen Sie eine requirements.txt-Datei, die alle Python-Abhängigkeiten
+         (einschließlich llama-cpp-python und PyYAML) mit ihren genauen Versionen
+         auflistet. Fügen Sie eine Anleitung in das README.md ein, wie eine virtuelle
+         Umgebung erstellt und die Abhängigkeiten installiert werden (python3 -m venv
+         .venv && ./.venv/bin/pip install -r requirements.txt).
+       * Warum: Dies stellt sicher, dass jeder Entwickler oder jede
+         Bereitstellungsumgebung eine identische und funktionierende Python-Umgebung
+         erhält. Es eliminiert ModuleNotFoundError und das "Works on my
+         machine"-Problem.
+
+   2. Maßnahme: Standardisierung der Hardware-Beschleunigungs-Konfiguration.
+       * Was: Erarbeiten Sie eine klare, dokumentierte Strategie für die
+         NPU-Integration. Dies beinhaltet die genauen CMAKE_ARGS für llama-cpp-python
+         (basierend auf der QNN SDK-Dokumentation), die notwendigen Umgebungsvariablen
+         und eine Schritt-für-Schritt-Anleitung zur Installation. Falls die
+         NPU-Integration weiterhin nicht stabil ist, sollte eine klare Empfehlung für
+         den OpenCL-GPU-Backend (mit den entsprechenden CMAKE_ARGS) als Alternative
+         oder Fallback dokumentiert werden.
+       * Warum: Die NPU-Nutzung ist ein Kernziel des Projekts. Eine standardisierte
+         Konfiguration vermeidet wiederholte, zeitaufwändige Fehlersuche und stellt
+         sicher, dass die Hardware-Ressourcen optimal genutzt werden.
+
+   3. Maßnahme: Etablierung eines "Lessons Learned"-Prozesses.
+       * Was: Erstellen Sie ein "Lessons Learned"-Dokument (z.B. LESSONS_LEARNED.md im
+         Projekt-Root oder eine Wiki-Seite), in dem die aufgetretenen Probleme (z.B.
+         externally-managed-environment, NPU-Integrationsschwierigkeiten, irreführende
+         Fehlermeldungen) und deren endgültige Lösungen detailliert festgehalten
+         werden.
+       * Warum: Dies sichert das im Projekt gewonnene Wissen, verhindert, dass
+         dieselben Fehler in zukünftigen Projekten oder bei neuen Teammitgliedern
+         wiederholt werden, und fördert eine Kultur der kontinuierlichen Verbesserung.
+
+  ---
+
+  Wissensmanagement
+
+  Um Learnings und Best Practices für das Team und zukünftige Projekte nachhaltig zu
+  sichern und zugänglich zu machen, schlage ich folgende Maßnahmen vor:
+
+   * Zentrales "Lessons Learned"-Dokument: Wie oben beschrieben, ein Markdown-Dokument
+     im Projekt-Repository, das regelmäßig aktualisiert wird.
+   * Projekt-Setup-Checkliste: Eine einfache Checkliste für den Start neuer Projekte,
+     die sicherstellt, dass grundlegende Aspekte wie requirements.txt, .venv-Nutzung,
+     README.md-Struktur und die Berücksichtigung von Hardware-Beschleunigung von Anfang
+     an bedacht werden.
+   * Interne Wiki-Seite/Confluence: Für detailliertere technische Anleitungen, Best
+     Practices und tiefergehende Erklärungen zu komplexen Themen wie der
+     NPU-Integration. Hier könnten auch Code-Snippets und Beispielkonfigurationen
+     abgelegt werden.
+   * Regelmäßige "Tech-Talks" oder "Knowledge-Sharing"-Sessions: Um die gesammelten
+     Erfahrungen aktiv im Team zu verbreiten und Diskussionen anzuregen.

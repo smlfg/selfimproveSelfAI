@@ -1,0 +1,150 @@
+│  > {                                                                                                                         │
+│      "system_prompt": "Du bist der 'SelfAI Hybrid Inference Manager', ein intelligentes Analyse- und Steuerungssystem für    │
+│    die lokale Generative AI (GenAI) Anwendung, die auf Snapdragon NPU-Hardware abzielt. Deine Hauptaufgabe ist es, die       │
+│    On-Device-KI-Inferenz zu optimieren, indem du eine hybride Backend-Strategie (NPU-Primär, CPU-Fallback) implementierst    │
+│    und strenge Software-Engineering-Praktiken (Dev Container, Wissensmanagement) durchsetzt. Das Ziel ist eine modulare,     │
+│    reproduzierbare und hochverfügbare (99% Uptime) Agenten-Architektur [1, 2, 45].",                                         │
+│      "source_summary": {                                                                                                     │
+│        "websites": [                                                                                                         │
+│          "AI Disruption: Beschreibt den Trend zu effizienten, destillierten Small Language Models (SLMs) wie DeepSeek R1 und │
+│     Llama 3.1, die mit großen Modellen konkurrieren können, und die Notwendigkeit spezialisierter NPUs für                   │
+│    On-Device-Inferenz und Energieeffizienz [8, 10-12].",                                                                     │
+│          "Qualcomm AI Hub/Stack: Definiert das Ökosystem für die Bereitstellung optimierter Modelle (Llama 3.1, IBM Granite) │
+│     auf Qualcomm-Geräten unter Verwendung heterogener Runtimes (QNN, LiteRT, ONNX Runtime) [14, 15, 46, 47].",               │
+│          "AnythingLLM Chatbot Guide: Detailreiche Anleitung für den Aufbau eines NPU-beschleunigten Chatbots auf Snapdragon  │
+│    X Elite mit AnythingLLM, einschließlich API-Konfiguration und Verwendung des Llama 3.1 8B Modells [3, 48, 49].",          │
+│          "LiteRT/Google AI Edge: Beschreibt LiteRT (ehemals TensorFlow Lite) als Laufzeit für On-Device-KI, betont die       │
+│    Vorteile (Latenz, Datenschutz, Größe) und die Nutzung des Qualcomm AI Engine Direct Delegate zur NPU-Beschleunigung       │
+│    [50-53].",                                                                                                                │
+│          "Hexagon V73 Manual: Stellt die tiefgreifende architektonische Komplexität des Qualcomm Hexagon                     │
+│    Tensor/DSP-Prozessors dar, der spezialisierte Befehle für Vektor- und Matrixoperationen (z.B. vdmpybsu, vcmpyi, vsatwuh)  │
+│    für KI-Workloads enthält [42, 43, 54, 55]."                                                                               │
+│        ],                                                                                                                    │
+│        "files": [                                                                                                            │
+│          "Developer/Manager Feedback (Lessons Learned): Identifiziert die Hauptursachen der Projektverzögerungen: instabile  │
+│    venv-Umgebungen, fehlgeschlagene NPU-Kompilierung, Black-Box-APIs (qai_hub_models) und mangelndes Wissensmanagement.      │
+│    Fordert die Einführung von Dev Containern und Spikes [4, 28, 29, 35, 36].",                                               │
+│          "Software Engineering Bauplan (SelfAI): Definiert die Ziel-Architektur der Python-Anwendung: modulare Trennung in   │
+│    Agent Manager, Memory System und NPU Interface Layer zur Unterstützung von Custom Prompts und kategorisiertem Gedächtnis  │
+│    [22-24].",                                                                                                                │
+│          "Hybrider Chatbot Code (`llm_chat.py` / `main()`): Implementiert die Kernlogik des Hybrid-Ansatzes (Laden von       │
+│    `config.yaml`, Versuch der AnythingLLM (NPU) Verbindung via `httpx`, Fallback auf lokale `llama-cpp-python` (CPU) mit     │
+│    GGUF-Modellen; inklusive Demo-Modus) [5, 20, 56, 57].",                                                                   │
+│          "Requirements/Download Commands: Listet die kritischen Python-Abhängigkeiten (`httpx`, `PyYAML`,                    │
+│    `llama-cpp-python`, `qai_hub_models`) [58, 59] und die Befehle zum Herunterladen von Gated GGUF-Modellen von Hugging Face │
+│     (z.B. Phi-3.5-mini) [21].",                                                                                              │
+│          "README.md (Projektbasis): Kurzzusammenfassung der NPU/CPU-Fallback-Architektur und der grundlegenden               │
+│    Installationsschritte, einschließlich der Notwendigkeit einer ARM64-Umgebung auf Snapdragon X Elite [1, 60]."             │
+│        ],                                                                                                                    │
+│        "code_highlights": [                                                                                                  │
+│          "`if backend != 'npu': ... Wechsle zum CPU-Fallback...`: Kern des hybriden Failover-Mechanismus in `main()` [20,    │
+│    61].",                                                                                                                    │
+│          "`llm = Llama(model_path=configured_path, ...)`: CPU-Fallback-Initialisierung, wobei `Llama` `llama-cpp-python`     │
+│    verwendet [20].",                                                                                                         │
+│          "`json.loads(line.strip())`, `parsed_chunk.get('textResponse')`: Verarbeitung des JSON-Streaming-Protokolls von     │
+│    AnythingLLM für dynamische Antworten [19, 62].",                                                                          │
+│          "`class AgentManager` / `class MemorySystem`: Architektonische Entitäten aus dem `SelfAI`-Bauplan, die die          │
+│    Projektkomplexität jenseits des reinen Chatbots definieren [23, 63].",                                                    │
+│          "`loading_indicator()`: Funktion zur Aufrechterhaltung der UI-Responsiveness während der Inferenz durch Threading   │
+│    [64, 65]."                                                                                                                │
+│        ]                                                                                                                     │
+│      },                                                                                                                      │
+│      "context": {                                                                                                            │
+│        "goals": [                                                                                                            │
+│          "Primärziel: Erfolgreiche und reproduzierbare KI-Inferenz auf Snapdragon NPU (Hexagon DSP/HTP) [29, 31].",          │
+│          "Sekundärziel: Implementierung eines robusten, hybriden Systems mit transparentem CPU-Fallback (GGUF via            │
+│    llama-cpp-python) [1, 20].",                                                                                              │
+│          "Architekturziel: Schaffung eines modularen 'SelfAI' Agenten-Systems mit 99% Verfügbarkeit, kategoriesiertem        │
+│    Langzeitgedächtnis und dynamischen System-Prompts [2, 22]."                                                               │
+│        ],                                                                                                                    │
+│        "hardware_focus": "Snapdragon X Elite / Windows on ARM64 [16, 17].",                                                  │
+│        "required_tooling": "AnythingLLM (ARM64 App), Python 3.12, Llama.cpp/GGUF, Qualcomm AI Engine Direct SDK (implizit)   │
+│    [1, 17]."                                                                                                                 │
+│      },                                                                                                                      │
+│      "key_components_and_data_flow": {                                                                                       │
+│        "flow_description": "Der 'SelfAI Core' orchestriert die Agenten [22]. Ein Benutzer-Prompt wird an das 'NPU Interface' │
+│     gesendet [23]. Dieses versucht zuerst, die AnythingLLM API (NPU Backend) zu erreichen [5]. Bei Erfolg werden gestreamte  │
+│    JSON-Antworten verarbeitet [19]. Bei Verbindungs- oder Authentifizierungsfehlern fällt das System auf das lokale          │
+│    `llama-cpp-python` Backend (CPU) zurück, das ein GGUF-Modell lädt [1, 20]. Ergebnisse fließen über den `StreamingHandler` │
+│     zurück zur `Terminal Interface` [66].",                                                                                  │
+│        "components": [                                                                                                       │
+│          {                                                                                                                   │
+│            "name": "NPU_BACKEND (AnythingLLM API)",                                                                          │
+│            "role": "Primäre GenAI-Inferenz, RAG, Workspace/Session Management [3, 67].",                                     │
+│            "api_endpoint": "HTTP POST /api/v1/workspace/{slug}/chat [68]",                                                   │
+│            "dependencies": "httpx, AnythingLLM Server (lokal laufend) [56].",                                                │
+│            "status_check": "Erfolgreicher Test-API-Aufruf ('Hallo') [61]."                                                   │
+│          },                                                                                                                  │
+│          {                                                                                                                   │
+│            "name": "CPU_FALLBACK (llama-cpp-python)",                                                                        │
+│            "role": "Robuster Inferenz-Fallback für lokale GGUF-Modelle [1, 20].",                                            │
+│            "dependencies": "llama-cpp-python (optimiert kompiliert), GGUF-Modell in models/ [1, 20, 21].",                   │
+│            "status_check": "Erfolgreiches Laden des Modells in die Llama-Klasse [20]."                                       │
+│          },                                                                                                                  │
+│          {                                                                                                                   │
+│            "name": "MEMORY_SYSTEM",                                                                                          │
+│            "role": "Kontextverwaltung, Speicherung nach Kategorien (z.B. 'arbeit', 'liebe'), RAG-Vorbereitung [23, 69].",    │
+│            "dependencies": "AnythingLLM Workspace Slug, Dateisystem (memory/ Ordner) [24, 69]."                              │
+│          }                                                                                                                   │
+│        ]                                                                                                                     │
+│      },                                                                                                                      │
+│      "configuration": {                                                                                                      │
+│        "config_file": "config.yaml",                                                                                         │
+│        "structure_modular": true,                                                                                            │
+│        "options": [                                                                                                          │
+│          {                                                                                                                   │
+│            "variable": "NPU_PROVIDER.API_KEY",                                                                               │
+│            "comment": "AnythingLLM Developer API Key (für NPU-Zugriff) [68, 70, 71]. ACHTUNG: Externer Zugriff erfordert     │
+│    ggf. Hugging Face Authentifizierung [72].",                                                                               │
+│            "example_value": "\"your-generated-api-key\""                                                                     │
+│          },                                                                                                                  │
+│          {                                                                                                                   │
+│            "variable": "NPU_PROVIDER.BASE_URL",                                                                              │
+│            "comment": "Lokaler Endpunkt des AnythingLLM Model Servers [70, 71].",                                            │
+│            "example_value": "\"http://localhost:3001/api/v1\""                                                               │
+│          },                                                                                                                  │
+│          {                                                                                                                   │
+│            "variable": "NPU_PROVIDER.WORKSPACE_SLUG",                                                                        │
+│            "comment": "Slug des AnythingLLM Workspaces (Definiert das RAG/Memory-Set) [70, 73].",                            │
+│            "example_value": "\"verhandlung\""                                                                                │
+│          },                                                                                                                  │
+│          {                                                                                                                   │
+│            "variable": "SYSTEM.STREAMING_ENABLED",                                                                           │
+│            "comment": "Aktiviert dynamisches (Stück-für-Stück) Streaming des Outputs (vs. Blocking) [73, 74].",              │
+│            "example_value": "true"                                                                                           │
+│          },                                                                                                                  │
+│          {                                                                                                                   │
+│            "variable": "CPU_FALLBACK.MODEL_PATH",                                                                            │
+│            "comment": "Pfad zum lokalen GGUF-Modell (z.B. Phi-3.5-mini) für llama-cpp-python [1, 20, 75].",                  │
+│            "example_value": "\"models/Phi-3.5-mini-instruct-Q4_K_M.gguf\""                                                   │
+│          },                                                                                                                  │
+│          {                                                                                                                   │
+│            "variable": "CPU_FALLBACK.N_CTX",                                                                                 │
+│            "comment": "Maximale Token-Kontextlänge für llama.cpp-Inferenz [20].",                                            │
+│            "example_value": "4096"                                                                                           │
+│          },                                                                                                                  │
+│          {                                                                                                                   │
+│            "variable": "CPU_FALLBACK.N_GPU_LAYERS",                                                                          │
+│            "comment": "Anzahl der Schichten, die Llama.cpp auf der GPU/NPU ausführen soll (0 für reinen CPU-Betrieb) [20].", │
+│            "example_value": "0"                                                                                              │
+│          },                                                                                                                  │
+│          {                                                                                                                   │
+│            "variable": "AGENT_CONFIG.DEFAULT_AGENT",                                                                         │
+│            "comment": "Definierter Start-Agent (Referenziert YAML-Dateien in agents/) [76].",                                │
+│            "example_value": "\"code_helfer\""                                                                                │
+│          }                                                                                                                   │
+│        ]                                                                                                                     │
+│      },                                                                                                                      │
+│      "engineering_best_practices": {                                                                                         │
+│        "priorities": [                                                                                                       │
+│          "Reproduzierbarkeit: Dev Container (Docker/VS Code) MUSS eingeführt werden, um Umgebungsprobleme (venv, WSL,        │
+│    Build-Tools) zu eliminieren [33, 34, 45].",                                                                               │
+│          "Risikomanagement: Integration neuer NPU-Technologie nur über gezielte 'Spikes' (R&D-Phase) zur frühzeitigen        │
+│    Machbarkeitsprüfung [35-37].",                                                                                            │
+│          "Wissenssicherung: Erstellung und Pflege von `LESSONS_LEARNED.md` und `TROUBLESHOOTING.md` zur Dokumentation von    │
+│    Fehlern (z.B. 'from_pretrained returns None') und Workarounds [38-40, 77]."                                               │
+│        ],                                                                                                                    │
+│        "critical_dependencies": "Strikte Verwaltung der `requirements.txt` und detaillierte `BUILD.md` für NPU-spezifische   │
+│    Kompilierung (CMAKE_ARGS, SDK-Pfade) [78-82]."                                                                            │
+│      }                                                                                                                       │
+│    } 

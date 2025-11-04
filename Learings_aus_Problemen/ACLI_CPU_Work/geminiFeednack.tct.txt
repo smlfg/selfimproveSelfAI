@@ -1,0 +1,72 @@
+✦ Absolut. Hier ist die systematische Aufbereitung der "Lessons Learned" aus der Perspektive eines Software-Architekten.
+
+  ---
+
+  Lessons Learned & Architektur-Review: SelfAI Hybrid Inference Projekt
+
+  Datum: 24.09.2025
+  Reviewer: Gemini (Software-Architekt)
+
+  1. Zusammenfassung der wichtigsten Learnings
+
+  Der bisherige Projektverlauf war geprägt von der schrittweisen Stabilisierung einer initial fragilen Codebasis. Die
+  zentralen Erkenntnisse sind:
+
+   * Technisch: Die größten Probleme entstanden durch eine instabile und nicht reproduzierbare Entwicklungsumgebung. Fehlende
+     Systempakete (python3.12-venv), unklare Python-Versionen (python vs. python3) und nicht gepinnte Abhängigkeiten führten zu
+      unvorhersehbarem Verhalten und dem ModuleNotFoundError. Architektonisch war die enge Kopplung von NPU- und CPU-Code in
+     llm_chat.py die Hauptursache für das Scheitern des CPU-Fallbacks.
+
+   * Organisatorisch: Das Projekt litt unter einer unklaren Struktur mit veralteten Skripten und unorganisierten
+     Modelldateien. Es fehlte ein zentraler, dokumentierter Prozess für Setup, Konfiguration und Testing, was zu Frustration
+     und ineffizienter Fehlersuche führte. Das versehentliche Teilen von Secrets hat die Notwendigkeit eines robusten
+     Secret-Management-Prozesses unterstrichen.
+
+  2. Typische Fehlerquellen & deren Vermeidung
+
+
+  ┌────────┬────────────────────────┬──────────────────────────────────────────────────────────────────────────────────┐
+  │ Feh... │ Beschreibung           │ Zukünftige Vermeidung                                                            │
+  ├────────┼────────────────────────┼──────────────────────────────────────────────────────────────────────────────────┤
+  │ **`Mo... │ Kritische Pakete wi... │ 1.  Dev Container erzwingen: Standardisiert die Umgebung zu 100%.<br>2.  **`req... │
+  │ **Umg... │ Unterschiedliches V... │ Dev Container als "Single Source of Truth" für die Entwicklungsumgebung defin... │
+  │ **CPU... │ Die App stürzte ab,... │ Architektonisches Refactoring: Hardware-spezifische Imports (z.B. `qai_hub_mode... │
+  │ **Kon... │ Fehlende API-Keys o... │ Validierung beim Start: Der config_loader.py validiert alle Konfigurationswer... │
+  └────────┴────────────────────────┴──────────────────────────────────────────────────────────────────────────────────┘
+
+
+  3. Kritische Review-Fragen & Analyse
+
+  Welche strukturellen Schwächen sind aufgefallen?
+  Die größte Schwäche ist die monolithische Natur von `llm_chat.py`. Es vermischt UI-Logik, Backend-Ansteuerung (NPU/CPU)
+  und Anwendungs-Flow. Dies verletzt das Single-Responsibility-Prinzip und macht das System schwer wartbar und testbar.
+
+  Wie kann das Projekt robuster gestaltet werden?
+   1. Dependency Management: Der Wechsel zu requirements-core.txt, requirements-npu.txt und einer requirements.lock.txt war der
+      richtige Schritt. Dies muss beibehalten werden.
+   2. Hardware-Abstraktion: Die Ansteuerung von CPU- und NPU-Backend muss hinter einer einheitlichen Schnittstelle (Interface)
+      abstrahiert werden. Der Hauptanwendungscode sollte nicht wissen, welches Backend gerade aktiv ist.
+   3. Automatisierte Checks: Die preflight_check.py und check_dependencies.py sind gute Anfänge. Sie sollten in einem
+      automatisierten CI-Prozess (z.B. GitHub Actions) bei jedem Commit ausgeführt werden.
+
+  4. Konkrete Verbesserungsmaßnahmen
+
+
+  ┌─────────┬─────────────────────────────────────────────────────┬────────────────────────────────────────────────────┐
+  │ Maßn... │ Beschreibung                                        │ "Warum?" (Begründung)                              │
+  ├─────────┼─────────────────────────────────────────────────────┼────────────────────────────────────────────────────┤
+  │ **1. R... │ Erstelle eine backends-Modulstruktur mit einer `... │ Entkopplung & Stabilität: Macht den CPU-Modus 1... │
+  │ **2. E... │ Richte eine einfache CI-Pipeline (z.B. GitHub Ac... │ Frühe Fehlererkennung: Verhindert, dass fehlerh... │
+  │ **3. Z... │ Überarbeite die README.md zu einem zentralen "Hu... │ Klarheit & Effizienz: Ein neuer Entwickler hat ... │
+  └─────────┴─────────────────────────────────────────────────────┴────────────────────────────────────────────────────┘
+
+  5. Wissensmanagement und Team-Transfer
+
+  Um die gemachten Erfahrungen nachhaltig zu sichern, schlage ich vor:
+
+   1. Dieses "Lessons Learned"-Dokument wird unter docs/LESSONS_LEARNED.md im Repository gespeichert.
+   2. Die `README.md` wird zum zentralen Einstiegspunkt für alle Entwickler und verlinkt auf alle anderen relevanten Dokumente.
+   3. Checklisten erweitern: Die Verifizierungs-Checkliste in BUILD.md sollte um Punkte aus diesem Dokument erweitert werden
+      (z.B. "Wurde der Import von Hardware-Code korrekt gekapselt?").
+   4. Regelmäßige Architektur-Reviews: Das Team sollte in regelmäßigen Abständen (z.B. einmal pro Monat) den aktuellen Stand
+      der Architektur kritisch hinterfragen, um zu verhindern, dass sich neue "Altlasten" ansammeln.

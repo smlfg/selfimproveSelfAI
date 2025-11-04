@@ -1,0 +1,362 @@
+================================================================================
+AI NPU AGENT PROJECT - QUICK ARCHITECTURE SUMMARY
+================================================================================
+
+PROJECT TITLE: Terminal Chatbot with NPU Acceleration and CPU Fallback
+MAIN PURPOSE: Local AI inference with automatic hardware acceleration fallback
+TARGET PLATFORM: Windows on ARM (Snapdragon X Elite)
+PYTHON VERSION: 3.12 (ARM64)
+
+================================================================================
+THREE-PHASE PIPELINE
+================================================================================
+
+PHASE 1: PLANNING (Optional, Ollama-based)
+  - Decompose user goal into subtasks
+  - Generate DPPM (Distributed Planning Problem Model) plan
+  - Create task dependencies and merge strategy
+  - Entry command: /plan <goal>
+
+PHASE 2: EXECUTION (Core, Multi-backend)
+  - Execute each subtask via LLM backends (in priority order)
+  - Backend order: AnythingLLM (NPU) → QNN (NPU) → CPU (GGUF)
+  - Automatic failover if backend unavailable
+  - Save results and track status
+  - Integrates: ExecutionDispatcher, AgentManager, MemorySystem
+
+PHASE 3: MERGE (Optional, Result synthesis)
+  - Collect all subtask outputs
+  - Synthesize into coherent final answer
+  - Use Ollama or fallback to internal summary
+
+REGULAR CHAT (No planning):
+  - Simple conversation mode
+  - Single LLM call → Response
+  - Memory integration for context
+
+================================================================================
+BACKEND SUPPORT
+================================================================================
+
+BACKEND 1: AnythingLLM (Primary - NPU Acceleration)
+  - HTTP API client (httpx)
+  - Snapdragon X Elite hardware acceleration
+  - Streaming support (SSE)
+  - Configured via: config.yaml > npu_provider
+  - API Key required: Set in .env
+
+BACKEND 2: QNN (Secondary - Direct NPU)
+  - Qualcomm AI Hub models (Phi-3.5-Mini, etc.)
+  - Direct QNN runtime (no HTTP)
+  - Auto-discovered from models/ directory
+  - Interface: NpuLLMInterface
+
+BACKEND 3: CPU (Tertiary - Fallback)
+  - llama-cpp-python (GGUF models)
+  - Pure CPU inference (no acceleration)
+  - Guarantees functionality on any system
+  - Model file: models/Phi-3-mini-4k-instruct.Q4_K_M.gguf
+
+================================================================================
+KEY ENTRY POINTS
+================================================================================
+
+MAIN (RECOMMENDED): selfai/selfai.py
+  python selfai/selfai.py
+  - Full 3-phase pipeline support
+  - Planning, execution, merge phases
+  - Memory management (/memory commands)
+  - Agent switching (/switch commands)
+  - Interactive CLI with rich UI
+
+SIMPLE AGENT: main.py
+  python main.py
+  - Basic agent initialization
+  - Simple chat loop
+  - Tool-calling support (smolagents)
+  - No planning/merge phases
+
+DIRECT NPU CHAT: llm_chat.py
+  python llm_chat.py
+  - Phi-3.5-Mini on Snapdragon X Elite
+  - Direct QAI Hub model
+  - No configuration needed
+  - Simple interactive chat
+
+================================================================================
+CONFIGURATION SYSTEM
+================================================================================
+
+FILES:
+  - config.yaml: Main configuration (copy from config.yaml.template)
+  - .env: Secrets (copy from .env.example)
+  - agents/*/system_prompt.md: Agent personalities
+  - agents/*/memory_categories.txt: Agent memory categories
+
+CONFIG SECTIONS:
+  1. npu_provider: AnythingLLM backend settings
+  2. cpu_fallback: GGUF model configuration
+  3. system: Streaming, timeouts
+  4. agent_config: Default agent selection
+  5. planner: Ollama planner configuration (optional)
+  6. merge: Ollama merge provider configuration (optional)
+
+VALIDATION:
+  - Done at startup by config_loader.py
+  - Type-checked via dataclasses
+  - Required fields enforced
+  - Environment variables interpolated (${VAR_NAME})
+
+================================================================================
+COMPONENT STRUCTURE
+================================================================================
+
+CORE MODULES (selfai/core/):
+  agent.py                    - Basic agent with tool-calling
+  agent_manager.py            - Multi-agent management
+  model_interface.py          - Base LLM interface
+  anythingllm_interface.py    - AnythingLLM HTTP client
+  npu_llm_interface.py        - QNN/NPU model support
+  local_llm_interface.py      - CPU GGUF inference
+  execution_dispatcher.py     - Subtask execution orchestrator
+  memory_system.py            - Conversation & plan persistence
+  planner_ollama_interface.py - Task decomposition planning
+  merge_ollama_interface.py   - Result synthesis
+  context_filter.py           - Smart context retrieval
+  planner_validator.py        - Plan schema validation
+
+TOOLS (selfai/tools/):
+  tool_registry.py           - Tool catalog
+  filesystem_tools.py        - File operations
+  shell_tools.py             - Shell execution
+
+UI (selfai/ui/):
+  terminal_ui.py             - Rich terminal interface
+
+CONFIGURATION & SUPPORT:
+  config_loader.py           - Configuration loading & validation
+  main.py                    - Simple entry point
+  llm_chat.py                - Direct NPU chat
+
+================================================================================
+MEMORY & PERSISTENCE
+================================================================================
+
+STRUCTURE:
+  memory/
+  ├── plans/                 - Execution plans (JSON)
+  ├── [category]/            - Agent memory (text files)
+  └── ...
+
+CONVERSATION FORMAT:
+  ---
+  Agent: [Name]
+  AgentKey: [key]
+  Workspace: [workspace]
+  Timestamp: [datetime]
+  Tags: [extracted tags]
+  ---
+  System Prompt:
+  [System instructions]
+  ---
+  User:
+  [User question]
+  ---
+  SelfAI:
+  [AI response]
+
+CONTEXT RETRIEVAL:
+  - Smart filtering by relevance
+  - Task classification (coding, planning, etc.)
+  - Relevance scoring
+  - Top-N selection for chat history
+
+================================================================================
+AGENT SYSTEM
+================================================================================
+
+AGENT PROPERTIES:
+  - key: Unique identifier (e.g., "code_helfer")
+  - display_name: Human-readable name
+  - description: What agent does
+  - system_prompt: Personality/instructions
+  - memory_categories: Conversation storage categories
+  - workspace_slug: AnythingLLM workspace
+
+AGENT CREATION:
+  mkdir agents/my_agent/
+  - system_prompt.md
+  - memory_categories.txt
+  - workspace_slug.txt
+  - description.txt
+
+AGENT SWITCHING:
+  /switch my_agent        # By key
+  /switch 1               # By number
+
+================================================================================
+DEPENDENCIES
+================================================================================
+
+CORE (requirements-core.txt):
+  - PyYAML: Config parsing
+  - python-dotenv: Environment variables
+  - openai: API compatibility
+  - llama-cpp-python: CPU inference
+  - numpy, pyarrow: Data processing
+  - qai-hub-models: QNN models
+  - smolagents: Agent toolkit
+  - psutil: System monitoring
+
+NPU (requirements-npu.txt):
+  - httpx: HTTP client
+  - qai_hub_models: QNN support
+
+SYSTEM REQUIREMENTS:
+  - Windows on ARM (Snapdragon X Elite preferred)
+  - Python 3.12 ARM64
+  - 8GB+ RAM (16GB+ recommended)
+  - AnythingLLM Desktop (optional, for NPU)
+  - Ollama (optional, for planning/merge)
+
+================================================================================
+COMMON WORKFLOWS
+================================================================================
+
+1. SIMPLE CHAT:
+   python selfai/selfai.py
+   > You: What is Python?
+   > AI: [Response]
+
+2. TASK PLANNING:
+   python selfai/selfai.py
+   > You: /plan Create a web crawler
+   [System decomposes into subtasks]
+   [Executes each subtask]
+   [Merges results]
+
+3. AGENT SWITCHING:
+   > You: /switch projektmanager
+   > You: Analyze requirements
+   > AI: [Response from project manager]
+
+4. MEMORY MANAGEMENT:
+   > You: /memory
+   > You: /memory clear category_name
+
+================================================================================
+TROUBLESHOOTING QUICK REFERENCE
+================================================================================
+
+ISSUE: API_KEY not set
+  → Add API key to .env file
+
+ISSUE: AnythingLLM not available
+  → Verify server running on configured host:port
+  → System will auto-fallback to QNN or CPU
+
+ISSUE: CPU inference slow
+  → Reduce max_output_tokens
+  → Use quantized models (Q4_K_M)
+  → Consider AnythingLLM for acceleration
+
+ISSUE: Planner not working
+  → Start Ollama: ollama serve
+  → Enable planner: planner.enabled: true
+  → Install models: ollama pull gemma3:1b
+
+ISSUE: Memory growing
+  → Use /memory clear to manage
+  → /memory clear category 5 (keep last 5)
+
+================================================================================
+PERFORMANCE TIPS
+================================================================================
+
+STREAMING (RECOMMENDED):
+  - Enable: system.streaming_enabled: true
+  - Better UX, lower latency perception
+  - System falls back if unavailable
+
+BACKEND SELECTION:
+  - AnythingLLM: Best performance + quality (NPU)
+  - QNN: Very fast, direct NPU access
+  - CPU: Slow but reliable fallback
+
+TOKEN LIMITS:
+  - Planner: 768 tokens (plan generation)
+  - Merge: 1536 tokens (result synthesis)
+  - Chat: 512 tokens (regular response)
+  - Increase for longer output, decrease for speed
+
+================================================================================
+SECURITY NOTES
+================================================================================
+
+- Never commit .env file with secrets
+- API keys loaded via python-dotenv
+- File I/O validated with pathlib
+- Input validation before execution
+- Configuration type-checked at startup
+
+================================================================================
+DEVELOPMENT PATTERNS
+================================================================================
+
+DEPENDENCY INJECTION:
+  - Interfaces passed as parameters
+  - Easy to mock for testing
+  - Flexible backend switching
+
+GRACEFUL DEGRADATION:
+  - Missing features don't crash system
+  - Fallback mechanisms at each level
+  - Clear status messages
+
+CONFIGURATION-DRIVEN:
+  - Behavior changes without code modification
+  - Environment variable interpolation
+  - Validated at startup
+
+SEPARATION OF CONCERNS:
+  - Each module has single responsibility
+  - Easy to extend and test
+  - Clear interfaces between components
+
+================================================================================
+FILES TO KNOW
+================================================================================
+
+MAIN ENTRY:
+  - selfai/selfai.py: Full pipeline implementation (1400+ lines)
+
+CONFIGURATION:
+  - config_loader.py: Validation & structure (440 lines)
+  - config.yaml.template: Configuration template
+
+EXECUTION:
+  - selfai/core/execution_dispatcher.py: Subtask runner
+  - selfai/core/anythingllm_interface.py: AnythingLLM client
+  - selfai/core/local_llm_interface.py: CPU fallback
+
+MANAGEMENT:
+  - selfai/core/agent_manager.py: Agent lifecycle
+  - selfai/core/memory_system.py: Persistence
+  - selfai/core/planner_ollama_interface.py: Planning
+
+INTERFACE:
+  - selfai/ui/terminal_ui.py: Rich terminal UI
+
+================================================================================
+NEXT STEPS
+================================================================================
+
+1. Review CLAUDE.md in root directory (comprehensive documentation)
+2. Copy config.yaml.template to config.yaml
+3. Configure with your settings (.env, agents, models)
+4. Run: python selfai/selfai.py
+5. Try /plan command for full pipeline experience
+
+================================================================================
+END OF SUMMARY
+================================================================================

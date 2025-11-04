@@ -1,0 +1,21 @@
+# Hugging Face Modell Download Befehle
+# Führen Sie diese Befehle in der Reihenfolge aus:
+
+# 1. Virtual Environment aktivieren
+source venv/bin/activate
+
+# 2. Mit Ihrem HF Token anmelden (ersetzen Sie YOUR_TOKEN)
+huggingface-cli login --token YOUR_HF_TOKEN_HIER
+
+# 3. Kleines Modell herunterladen (Phi-3.5 Mini, ~2.4GB)
+huggingface-cli download microsoft/Phi-3.5-mini-instruct-gguf Phi-3.5-mini-instruct-Q4_K_M.gguf --local-dir models --local-dir-use-symlinks False
+
+# ODER: Alternatives kleines Modell (Llama-3.2-1B, ~1GB)
+# huggingface-cli download huggingface/Llama-3.2-1B-Instruct-Q4_K_M-GGUF llama-3.2-1b-instruct-q4_k_m.gguf --local-dir models --local-dir-use-symlinks False
+
+# 4. Nach dem Download die config.yaml manuell anpassen:
+# cpu_fallback:
+#   model_path: "models/Phi-3.5-mini-instruct-Q4_K_M.gguf"
+
+# 5. System testen
+python npu_chat.py

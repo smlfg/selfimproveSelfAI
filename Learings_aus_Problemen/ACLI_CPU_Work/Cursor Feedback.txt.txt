@@ -1,0 +1,82 @@
+essons Learned – AI NPU Agent Projekt
+1) Zusammenfassung der wichtigsten Learnings
+Technische Learnings
+CPU-Fallback ist unverzichtbar: Lokale GGUFs mit llama-cpp-python sichern Betriebsfähigkeit, wenn NPU/AnythingLLM nicht verfügbar ist.
+NPU-Integration ist fragil: QNN/ONNX-Stacks und AnythingLLM erfordern saubere Installation, stabile Ports/Netzwege (WSL ↔ Windows), verlässliche ENV/Config.
+Streaming nur optional: Streaming von AnythingLLM muss robust auf Non-Streaming zurückfallen, sonst UX-Degradation.
+„Schwere“ Requirements verzögern: Voll-Installation blockiert durch große/komplexe Pakete (Torch, ONNX, OpenCV, QAI Hub). Splitten ist notwendig.
+Organisatorische Learnings
+Reproduzierbarkeit zuerst: Dev-Container/BUILD.md fehlen und verursachen Setup-Zeit.
+Preflight und klare Modi beschleunigen: Einfache, geführte Pfade (CPU/NPU/DEMO/SelfAI) verhindern Fehlbedienung.
+Wissensmanagement ist ein Hebel: Dokumentierte Fehler/Workarounds sparen Tage (z. B. WSL-Loopback, SymPy-Uninstall-Bug, pip Hänger).
+2) Typische Fehlerquellen und Vermeidung
+„requirements.txt läuft ewig“
+Ursache: große Wheels/Builds (torch, onnx, opencv, pyarrow).
+Vermeidung: requirements in core vs npu splitten; minimal installieren (httpx, PyYAML, llama-cpp-python) für schnellen Start; später NPU-Paketblock.
+NPU „Connection refused“ (http://localhost:3001)
+Ursache: AnythingLLM-Server nicht aktiv oder WSL-Netzwerkgrenzen.
+Vermeidung: Preflight prüft Reachability; falls WSL, Windows-Host-IP statt localhost nutzen; Healthcheck dokumentieren.
+QNN/ONNX „Provider fehlt“
+Ursache: Kein QNN-fähiger ORT, fehlende SDK-ENV.
+Vermeidung: BUILD.md mit konkreten Pfaden/ENV; Testskript npu_setup_check.py als Gate.
+Doppelte/verschobene Modelldateien
+Ursache: verstreute GGUFs im Root und in models/.
+Vermeidung: Ein canonical models/, Hash/Size-Check, ein Standardmodell in config.
+Windows/Terminal-Inkompatibilitäten
+Ursache: termios/select in multi_model_chat.py, python3 Call unter Windows.
+Vermeidung: OS-Branching/Fallbacks, python statt python3, Countdown-Enter-Handling.
+3) Dokumentations- und Review-Check
+Ist dokumentiert
+README: Grundidee, Setup, CPU/NPU-Fallback.
+Scripts: Preflight, NPU-Checks (qnn_setup_check, quick_npu_test), Model-Download.
+SelfAI: Agent/Memory/Local LLM Interfaces vorhanden.
+Lücken/Verbesserungen
+BUILD.md: Konkrete, getestete Schritte für CPU-Build (CMAKE_ARGS), NPU/QNN (SDK, ORT, ENV).
+requirements: Aufsplitten (core/npu) verbindlich dokumentieren; Versionspinning; „minimal path to green“.
+Troubleshooting.md: WSL/localhost, AnythingLLM-Health, SymPy/pip-Uninstall-Bug, „pip hangs“ Taktik (–no-cache-dir, Mirrors).
+README: Startpfade pro Modus (CPU, NPU, Demo, SelfAI) plus Preflight als Gate; Beispiel-config.yaml.
+CLI Usage: Einheitliche Flags und Beispiele in der Doku; Modusmatrix.
+4) Kritische Review-Fragen (Schwächen und Robustheit)
+Strukturell
+Uneinheitliche Startpunkte; teils Demo-Skripte neben Produktivcode; fehlender zentraler CLI-Einstieg.
+Modelle/Assets nicht normiert organisiert.
+Technisch
+NPU-Stack ist optional und fragil; fehlende deterministische Buildpfade; keine Metrics/Logs für Ursachenanalyse.
+Netzwerkabhängigkeit AnythingLLM nicht per Healthcheck erzwungen (bis Preflight ergänzt).
+Prozessual
+Repro-Setup kam zu spät (kein Dev Container); Requirements zu monolithisch; fehlende „Spike“-Isolierung für NPU-Forschung.
+Wie robuster gestalten?
+Projektstruktur: apps/ (CLI-Einstieg), selfai/ (lib), scripts/ (preflight, setup), models/ (einheitlich), docs/.
+Dependency-Management: core vs npu; Pinning; Minimalinstall standardisieren.
+Hardware-Integration: Preflight-Gate; BUILD.md mit verifizierten Pfaden; Artefakt-Check (Markerdateien).
+5) Konkrete Verbesserungsmaßnahmen (mind. 3)
+Maßnahme 1: Dev-Container + zweistufige Requirements
+Was: .devcontainer/ mit CPU-first Umgebung; requirements-core.txt (leicht) + requirements-npu.txt (schwer).
+Warum: Sicherer „Green Path“ in Minuten; NPU optional; vermeidet Hänger und lokale Toolchain-Drift.
+Maßnahme 2: Preflight als Gate + einheitliche CLI
+Was: Zentraler app.py mit --mode npu|cpu|demo|selfai, --agent, --stream; Preflight läuft automatisch und entscheidet Modus; klare Fehlermeldungen.
+Warum: Reduziert Supportaufwand, verhindert „falsche“ Starts, verbessert UX.
+Maßnahme 3: BUILD.md + Troubleshooting.md mit getesteten Snippets
+Was: ARM64/WSL-spezifische Schritte, AnythingLLM Health, WSL↔Windows IP-Pattern, QNN/ORT Install und ENV-Variablen; Copy/Paste-fähige Befehle.
+Warum: Verkürzt MTTR bei Setups; standardisiert Team-Setup.
+Maßnahme 4: Model-Management automatisieren
+Was: Download mit Hash/Size-Prüfung; nur ein Standardmodell in config; Cleaner für alte Dateien.
+Warum: Konsistente Laufzeit, weniger „Datei nicht gefunden“, kleinere Repo-Fußspuren.
+Maßnahme 5: Observability einführen
+Was: Rotierende Logs, Backendwahl/Latency/Fallback-Quote; einfache Statusausgabe.
+Warum: Belegbare Stabilität, gezielte Fehlerdiagnose, Vorbereitung auf 99% Uptime.
+6) Wissensmanagement und Team-Transfer
+„Lessons Learned“ (dieses Dokument) in docs/LESSONS_LEARNED.md pflegen (Version/Datum).
+Checklisten
+„First Run“: Preflight, CPU-Start, NPU-Health; 1-Seiten-Runbook.
+„Release Checklist“: Logs, Models, Config-Template, Smoke-Tests, Healthchecks.
+Interne Wissensbasis
+Wiki-Seiten für: WSL/Netzwerk, AnythingLLM, QNN/ORT, llama-cpp Build-Varianten.
+Tech-Talks/Spikes
+Kurze Sessions zu NPU/QNN-Pitfalls, AnythingLLM Streaming, Windows/WSL Besonderheiten.
+PR-Template
+„Docs updated?“ Checkbox für README/BUILD/TROUBLESHOOTING.
+Wenn gewünscht, erstelle ich jetzt:
+Eine überarbeitete BUILD.md (CPU/NPU Schritt-für-Schritt, verifizierte Kommandos).
+docs/TROUBLESHOOTING.md mit WSL/localhost, SymPy/pip, AnythingLLM-Health, QNN-Provider.
+Einen zentralen app.py CLI-Einstieg mit --mode und Preflight-Gate.

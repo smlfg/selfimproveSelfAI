@@ -1,0 +1,250 @@
+# Requirements Update & Software Engineering Bauplan für "SelfAI" 🎯
+
+Perfekt! Mit deinen Präzisierungen können wir jetzt den technischen Bauplan erstellen.
+
+***
+
+## 📋 **UPDATED REQUIREMENTS**
+
+### **Kritische Aktualisierungen:**
+1. ✅ **Custom System Prompts** pro Agent-Rolle
+2. ✅ **Memory-Kategorien:** Persönlich, Arbeit, Uni, Projekt1, Projekt2, Liebe
+3. ✅ **99% Uptime + Fehlerfreiheit** als Kernziel
+4. ✅ **Dynamische Textgenerierung** (Streaming falls möglich)
+5. ✅ **Lernfähiges System** - wird kontinuierlich besser
+
+***
+
+# 🏗️ **SOFTWARE ENGINEERING BAUPLAN**
+
+## **1. SYSTEM ARCHITECTURE**
+
+### **High-Level Architecture**
+```
+┌─────────────────────────────────────────┐
+│               SelfAI Core               │
+├─────────────────────────────────────────┤
+│  Agent Manager    │   Memory System    │
+│  ┌─────────────┐   │   ┌──────────────┐ │
+│  │Agent Router │   │   │Categorizer   │ │
+│  │Custom Prompts│   │   │File Manager  │ │
+│  │Session Mgmt │   │   │Context Loader│ │
+│  └─────────────┘   │   └──────────────┘ │
+├─────────────────────────────────────────┤
+│           NPU Interface Layer           │
+├─────────────────────────────────────────┤
+│        AnythingLLM API Gateway          │
+└─────────────────────────────────────────┘
+```
+
+### **Component Details**
+
+#### **A) Agent Management System**
+```python
+class AgentManager:
+    - agent_definitions/     # Custom System Prompts
+    - workspace_mapping     # Agent → Workspace Mapping
+    - session_context      # Aktueller Agent-State
+    - switch_agent()       # Nahtloser Agent-Wechsel
+    - load_custom_prompt() # Agent-spezifische Prompts
+```
+
+#### **B) Memory System**
+```python
+class MemorySystem:
+    - memory/
+      ├── persoenlich/
+      ├── arbeit/
+      ├── uni/
+      ├── projekt1/
+      ├── projekt2/
+      └── liebe/
+    - categorize_conversation()
+    - load_relevant_context()
+    - auto_save_session()
+```
+
+#### **C) NPU Interface**
+```python
+class NPUInterface:
+    - workspace_manager    # AnythingLLM Workspace Control
+    - streaming_handler   # Dynamische Textgenerierung
+    - error_recovery     # 99% Uptime Garantie
+    - performance_monitor # NPU Auslastung tracking
+```
+
+***
+
+## **2. DETAILED TECHNICAL DESIGN**
+
+### **File Structure**
+```
+selfai/
+├── core/
+│   ├── agent_manager.py      # Agent-Switching & Prompts
+│   ├── memory_system.py      # Kategorisierung & Speicherung
+│   ├── npu_interface.py      # AnythingLLM Integration
+│   └── error_handler.py      # Robuste Fehlerbehandlung
+├── agents/
+│   ├── verhandlungspartner.yaml
+│   ├── kommunikationsberater.yaml
+│   ├── code_helfer.yaml
+│   ├── digitaler_verwalter.yaml
+│   └── projektmanager.yaml
+├── memory/
+│   ├── persoenlich/
+│   ├── arbeit/
+│   ├── uni/
+│   ├── projekt1/
+│   ├── projekt2/
+│   └── liebe/
+├── ui/
+│   └── terminal_interface.py # Enhanced Terminal UI
+└── selfai.py                 # Main Entry Point
+```
+
+### **Agent Definition Format**
+```yaml
+# agents/verhandlungspartner.yaml
+agent:
+  name: "Verhandlungspartner"
+  workspace_slug: "verhandlung"
+  system_prompt: |
+    Du bist ein erfahrener Verhandlungspartner und Strategieberater.
+    Du hilfst bei der Entwicklung von Verhandlungsstrategien,
+    analysierst Argumente und bereitest auf schwierige Gespräche vor.
+    
+    Dein Stil: Analytisch, strategisch, empathisch
+    Deine Expertise: Verhandlungstaktiken, Kommunikationspsychologie
+  
+  memory_categories: ["persoenlich", "arbeit"]
+  display_name: "Verhandlungsexperte"
+  color: "blue"
+```
+
+### **Memory System Design**
+```python
+class MemorySystem:
+    def categorize_conversation(self, conversation):
+        """
+        Nutzt Phi 3.5 zur automatischen Kategorisierung
+        """
+        prompt = f"""
+        Kategorisiere diese Unterhaltung in eine der Kategorien:
+        - persoenlich
+        - arbeit  
+        - uni
+        - projekt1
+        - projekt2
+        - liebe
+        
+        Unterhaltung: {conversation}
+        Kategorie:
+        """
+        
+    def save_conversation(self, conversation, category, agent_type):
+        """
+        Speichert strukturiert: {category}/{agent_type}_{timestamp}.txt
+        """
+        
+    def load_relevant_context(self, agent_type, category, limit=3):
+        """
+        Lädt die 3 relevantesten Memory-Files für aktuellen Agent
+        """
+```
+
+### **Streaming Implementation**
+```python
+class StreamingHandler:
+    def stream_response(self, message, agent):
+        """
+        Dynamische Textgenerierung - Zeichen für Zeichen
+        """
+        for chunk in self.npu_interface.stream_chat(message):
+            yield chunk  # Real-time Display
+            
+    def handle_stream_error(self):
+        """
+        99% Uptime: Automatisches Retry bei Stream-Fehlern
+        """
+```
+
+***
+
+## **3. IMPLEMENTATION ROADMAP**
+
+### **Phase 1: Foundation (Week 1-2)**
+- [ ] Basic Agent Manager mit 2 Agents (Code + Verhandlung)
+- [ ] AnythingLLM Workspace Integration
+- [ ] Basic Memory System (Speichern ohne Kategorisierung)
+- [ ] Enhanced Terminal UI
+
+### **Phase 2: Memory Intelligence (Week 3)**
+- [ ] Automatische Kategorisierung implementieren
+- [ ] Context-Loading für Agents
+- [ ] Alle 5 Agent-Rollen ausimplementieren
+- [ ] Memory-Management Commands
+
+### **Phase 3: Optimization (Week 4)**
+- [ ] Streaming-Interface für dynamische Ausgabe
+- [ ] Error Recovery & 99% Uptime Features
+- [ ] Performance Monitoring
+- [ ] Advanced Context-Awareness
+
+### **Phase 4: Polish (Week 5)**
+- [ ] Proaktive Features
+- [ ] Advanced Memory-Queries
+- [ ] Documentation & Testing
+- [ ] User Experience Refinement
+
+***
+
+## **4. TECHNICAL IMPLEMENTATION DETAILS**
+
+### **Agent Switching Logic**
+```python
+def switch_agent(self, agent_name):
+    # 1. Save current conversation to memory
+    # 2. Load new agent configuration  
+    # 3. Switch AnythingLLM workspace
+    # 4. Load relevant context for new agent
+    # 5. Update UI with new agent persona
+```
+
+### **Error Recovery Strategy**
+```python
+class ErrorRecovery:
+    def ensure_uptime(self):
+        # Automatic retry mechanisms
+        # Fallback workspace switching
+        # Health monitoring
+        # Graceful degradation
+```
+
+### **Performance Requirements**
+- **Agent Switch:** <2 Sekunden (statt 3)
+- **Memory Load:** <500ms
+- **Stream Start:** <1 Sekunde
+- **NPU Utilization:** Konstant 90%+ bei Phi 3.5
+
+***
+
+## **5. VALIDATION PLAN**
+
+### **Testing Strategy**
+1. **Unit Tests:** Jede Komponente isoliert
+2. **Integration Tests:** Agent-Memory-NPU Pipeline
+3. **Performance Tests:** 99% Uptime Simulation
+4. **User Acceptance:** Tägliche Nutzung über 1 Woche
+
+***
+
+## 🚀 **NEXT STEPS**
+
+**Bereit für Implementation?**
+
+1. Soll ich mit **Phase 1** starten und den **Agent Manager** bauen?
+2. Welche **2 Agents** sollen wir zuerst implementieren?
+3. Möchtest du beim **Technical Design** noch Änderungen?
+
+Das wird ein richtig **powerful System** - lokaler AI-Agent mit Persönlichkeit, Memory und 99% Uptime! 🎯
