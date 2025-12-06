@@ -32,6 +32,7 @@ class MinimaxInterface:
         self.model = model
         self.stream_enabled = stream
         self.timeout = timeout
+        self._auth_checked = False  # Lazy validation Flag
 
         self.chat_url = f"{self.api_base}/chat/completions"
         self.headers = {
@@ -40,11 +41,11 @@ class MinimaxInterface:
             "Authorization": f"Bearer {self.api_key}",
         }
 
-        # Mini-Healthcheck beim Initialisieren, damit Fehlkonfigurationen früh auffallen.
-        self._check_auth()
-
-    def _check_auth(self) -> None:
-        """Validiert den API-Key gegen einen einfachen Chat-Endpoint."""
+    def _ensure_authenticated(self) -> None:
+        """Validiert den API-Key gegen einen einfachen Chat-Endpoint (Lazy Check)."""
+        if self._auth_checked:
+            return
+            
         try:
             test_payload = {
                 "model": self.model,
@@ -59,6 +60,7 @@ class MinimaxInterface:
                 )
                 response.raise_for_status()
                 logger.info("MiniMax API-Authentifizierung erfolgreich")
+                self._auth_checked = True
         except httpx.HTTPStatusError as exc:
             logger.error(f"MiniMax Auth fehlgeschlagen (Status {exc.response.status_code})")
             raise RuntimeError(
@@ -116,6 +118,9 @@ class MinimaxInterface:
         Sendet eine Chat-Anfrage an MiniMax und gibt die Textantwort zurück.
         Streaming wird intern deaktiviert, da SelfAI synchron arbeitet.
         """
+        # Lazy Authentication Check beim ersten API-Aufruf
+        self._ensure_authenticated()
+        
         messages = self._build_messages(system_prompt, user_prompt, history)
         
         payload: Dict[str, Any] = {
@@ -189,6 +194,9 @@ class MinimaxInterface:
         if not self.stream_enabled:
             raise RuntimeError("Streaming ist für MiniMax deaktiviert.")
 
+        # Lazy Authentication Check beim ersten API-Aufruf
+        self._ensure_authenticated()
+        
         messages = self._build_messages(system_prompt, user_prompt, history)
         
         payload: Dict[str, Any] = {
