@@ -1,16 +1,28 @@
+import sys
+from selfai.config_loader import load_configuration
 from selfai.core.agent import Agent
 
 def main():
     """Main function to run the interactive agent chat."""
     print("Initializing SelfAI Agent...")
     try:
-        agent = Agent(provider_name="local-ollama")
-        print("Agent initialized. You can start chatting.")
+        # Load configuration
+        config = load_configuration()
+        print("✔️ Configuration loaded successfully.")
+
+        # Initialize agent with the loaded configuration
+        agent = Agent(config=config)
+        print("🤖 Agent initialized. You can start chatting.")
         print("Type 'exit' or 'quit' to end the session.")
+
+    except (FileNotFoundError, ValueError) as e:
+        print(f"❌ Failed to initialize agent: {e}", file=sys.stderr)
+        print("Please ensure your 'config.yaml' is set up correctly.", file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
-        print(f"Failed to initialize agent: {e}")
-        print("Please ensure that your config_extended.yaml is set up correctly and the Ollama server is running.")
-        return
+        print(f"❌ An unexpected error occurred during initialization: {e}", file=sys.stderr)
+        sys.exit(1)
+
 
     while True:
         try:
