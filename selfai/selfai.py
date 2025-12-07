@@ -28,6 +28,8 @@ from selfai.core.planner_validator import (
     validate_plan_logic,
 )
 from selfai.core.merge_ollama_interface import MergeOllamaInterface
+from selfai.core.planner_minimax_interface import PlannerMinimaxInterface
+from selfai.core.merge_minimax_interface import MergeMinimaxInterface  # Falls erstellt
 from selfai.ui.terminal_ui import TerminalUI
 
 PLANNER_STATE_FILENAME = "planner_state.json"
@@ -795,18 +797,32 @@ def main():
     backend_names = [backend["name"] for backend in execution_backends]
     ui.status(f"Verfügbare Backends: {', '.join(backend_names)}", "info")
 
-    # FIX: Planner Provider Loading mit korrekten Headers
+    # FIX: Planner Provider Loading mit korrekten Headers und Type-based Selection
     if planner_cfg and planner_cfg.enabled:
         for provider in planner_cfg.providers:
             try:
                 headers = _create_provider_headers(provider)
-                interface = PlannerOllamaInterface(
-                    base_url=provider.base_url,
-                    model=provider.model,
-                    timeout=provider.timeout,
-                    max_tokens=provider.max_tokens,
-                    headers=headers,
-                )
+                
+                # Wähle Interface basierend auf provider.type
+                if provider.type == "minimax":
+                    interface = PlannerMinimaxInterface(
+                        base_url=provider.base_url,
+                        model=provider.model,
+                        timeout=provider.timeout,
+                        max_tokens=provider.max_tokens,
+                        headers=headers,
+                    )
+                elif provider.type == "local_ollama":
+                    interface = PlannerOllamaInterface(
+                        base_url=provider.base_url,
+                        model=provider.model,
+                        timeout=provider.timeout,
+                        max_tokens=provider.max_tokens,
+                        headers=headers,
+                    )
+                else:
+                    raise ValueError(f"Unknown planner type: {provider.type}")
+                
                 planner_providers[provider.name] = {
                     "type": provider.type,
                     "interface": interface,
@@ -839,18 +855,32 @@ def main():
     else:
         ui.status("Kein Planner-Provider verfügbar.", "warning")
 
-    # FIX: Merge Provider Loading mit korrekten Headers
+    # FIX: Merge Provider Loading mit korrekten Headers und Type-based Selection
     if merge_cfg and merge_cfg.enabled:
         for provider in merge_cfg.providers:
             try:
                 headers = _create_provider_headers(provider)
-                interface = MergeOllamaInterface(
-                    base_url=provider.base_url,
-                    model=provider.model,
-                    timeout=provider.timeout,
-                    max_tokens=provider.max_tokens,
-                    headers=headers,
-                )
+                
+                # Wähle Interface basierend auf provider.type
+                if provider.type == "minimax":
+                    interface = MergeMinimaxInterface(
+                        base_url=provider.base_url,
+                        model=provider.model,
+                        timeout=provider.timeout,
+                        max_tokens=provider.max_tokens,
+                        headers=headers,
+                    )
+                elif provider.type == "local_ollama":
+                    interface = MergeOllamaInterface(
+                        base_url=provider.base_url,
+                        model=provider.model,
+                        timeout=provider.timeout,
+                        max_tokens=provider.max_tokens,
+                        headers=headers,
+                    )
+                else:
+                    raise ValueError(f"Unknown merge type: {provider.type}")
+                
                 merge_providers[provider.name] = {
                     "type": provider.type,
                     "interface": interface,
