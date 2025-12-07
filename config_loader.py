@@ -1,33 +1,108 @@
 import os
 import sys
 import yaml
-from dataclasses import dataclass
-from typing import Dict
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional
+from pathlib import Path
+from dotenv import load_dotenv
 
 
 @dataclass
-class MiniMaxConfig:
-    """Vereinfachte Konfiguration für den MiniMax-Provider."""
+class MinimaxConfig:
+    """MiniMax Cloud API - Primary Backend (ersetzt AnythingLLM/NPU)"""
+    api_key: str
+    api_base: str = "https://api.minimax.io/v1"
+    model: str = "openai/MiniMax-M2"
+    enabled: bool = True
+
+
+@dataclass
+class SystemConfig:
+    """General system settings"""
+    streaming_enabled: bool = True
+    stream_timeout: float = 60.0
+
+
+@dataclass
+class CPUFallbackConfig:
+    """CPU Fallback mit GGUF"""
+    model_path: str = "Phi-3-mini-4k-instruct.Q4_K_M.gguf"
+    n_ctx: int = 4096
+    n_gpu_layers: int = 0
+
+
+@dataclass
+class ProviderConfig:
+    """Generic provider (Planner/Merge)"""
+    name: str
+    type: str
     base_url: str
     model: str
-    headers: Dict[str, str]
+    timeout: float = 180.0
+    max_tokens: int = 1024
+    api_key_env: Optional[str] = None
 
 
-def load_configuration(config_path: str = 'config.yaml') -> MiniMaxConfig:
+@dataclass
+class PlannerConfig:
+    """DPPM Planning Phase - KRITISCH!"""
+    enabled: bool = False
+    execution_timeout: float = 120.0
+    providers: List[ProviderConfig] = field(default_factory=list)
+
+
+@dataclass
+class MergeConfig:
+    """Merge Phase - Result Synthesis"""
+    enabled: bool = False
+    providers: List[ProviderConfig] = field(default_factory=list)
+
+
+@dataclass
+class AgentConfig:
+    """Agent Management"""
+    default_agent: str = "default"
+
+
+@dataclass
+class AppConfig:
+    """COMPLETE SelfAI Config - ALLE Features!"""
+    minimax_config: MinimaxConfig
+    system: SystemConfig
+    cpu_fallback: CPUFallbackConfig
+    planner: PlannerConfig
+    merge: MergeConfig
+    agent_config: AgentConfig
+
+
+def load_configuration(config_path: str = 'config.yaml') -> AppConfig:
     """
-    Lädt die MiniMax-Konfiguration aus einer YAML-Datei und Umgebungsvariablen.
+    Lädt die vollständige SelfAI-Konfiguration aus einer YAML-Datei und Umgebungsvariablen.
+    
+    KRITISCH: Gibt AppConfig zurück, nicht nur MiniMaxConfig!
+    Enthält ALLE Sub-Configs für DPPM (Distributed Planning Problem Model).
     """
     # .env-Datei für Geheimnisse laden
-    from dotenv import load_dotenv
     load_dotenv()
 
-    # YAML-Konfigurationsdatei laden
+    # Fallback-Konfiguration wenn config.yaml fehlt
     if not os.path.exists(config_path):
-        raise FileNotFoundError(
-            f"'{config_path}' nicht gefunden. "
-            f"Bitte kopieren Sie 'config.yaml.template' nach '{config_path}' und konfigurieren Sie es."
+        print(f"Warnung: '{config_path}' nicht gefunden. Verwende Standard-Fallback-Konfiguration.")
+        return AppConfig(
+            minimax_config=MinimaxConfig(
+                api_key=os.getenv("MINIMAX_API_KEY", ""),
+                api_base="https://api.minimax.io/v1",
+                model="openai/MiniMax-M2",
+                enabled=True
+            ),
+            system=SystemConfig(),
+            cpu_fallback=CPUFallbackConfig(),
+            planner=PlannerConfig(enabled=False),
+            merge=MergeConfig(enabled=False),
+            agent_config=AgentConfig()
         )
     
+    # YAML-Konfigurationsdatei laden
     with open(config_path, 'r') as f:
         try:
             config_data = yaml.safe_load(f)
@@ -45,40 +120,121 @@ def load_configuration(config_path: str = 'config.yaml') -> MiniMaxConfig:
             "Bitte setzen Sie es in Ihrer .env-Datei (kopiert von .env.example)."
         )
 
-    # Konfigurationswerte aus YAML laden
+    # Parse sections aus YAML
     minimax_section = config_data.get('minimax', {})
-    base_url = minimax_section.get('base_url', 'https://api.minimax.chat/v1')
-    model = minimax_section.get('model', 'abab6.5s-chat')
+    system_section = config_data.get('system', {})
+    cpu_section = config_data.get('cpu_fallback', {})
+    planner_section = config_data.get('planner', {})
+    merge_section = config_data.get('merge', {})
+    agent_section = config_data.get('agent_config', {})
     
-    # Authorization-Header erstellen
-    headers = {
-        'Authorization': f'Bearer {api_key}',
-        'Content-Type': 'application/json'
-    }
+    # Provider-Listen aus YAML parsen
+    def parse_providers(section_data: dict, section_name: str) -> List[ProviderConfig]:
+        providers_data = section_data.get('providers', [])
+        if not isinstance(providers_data, list):
+            raise ValueError(f"'{section_name}.providers' muss eine Liste sein.")
+        
+        providers = []
+        for i, provider_data in enumerate(providers_data):
+            if not isinstance(provider_data, dict):
+                raise ValueError(f"'{section_name}.providers[{i}]' muss ein Dictionary sein.")
+            
+            # API-Schlüssel aus Umgebungsvariable laden wenn api_key_env gesetzt ist
+            if 'api_key_env' in provider_data and provider_data['api_key_env']:
+                env_key = provider_data['api_key_env']
+                provider_data = dict(provider_data)  # Kopie erstellen
+                provider_data['api_key'] = os.getenv(env_key, '')
+                del provider_data['api_key_env']  # Entfernen da jetzt direkt als api_key
+            
+            try:
+                provider = ProviderConfig(**provider_data)
+                providers.append(provider)
+            except TypeError as e:
+                raise ValueError(f"Fehler beim Parsen von '{section_name}.providers[{i}]': {e}")
+        
+        return providers
 
-    # Zusätzliche Header aus der Konfiguration hinzufügen
-    custom_headers = minimax_section.get('headers', {})
-    if isinstance(custom_headers, dict):
-        headers.update(custom_headers)
-
-    return MiniMaxConfig(
-        base_url=base_url,
-        model=model,
-        headers=headers
+    # AppConfig mit allen Sub-Configs erstellen
+    return AppConfig(
+        minimax_config=MinimaxConfig(
+            api_key=api_key,
+            api_base=minimax_section.get('api_base', 'https://api.minimax.io/v1'),
+            model=minimax_section.get('model', 'openai/MiniMax-M2'),
+            enabled=minimax_section.get('enabled', True)
+        ),
+        system=SystemConfig(
+            streaming_enabled=system_section.get('streaming_enabled', True),
+            stream_timeout=system_section.get('stream_timeout', 60.0)
+        ),
+        cpu_fallback=CPUFallbackConfig(
+            model_path=cpu_section.get('model_path', 'Phi-3-mini-4k-instruct.Q4_K_M.gguf'),
+            n_ctx=cpu_section.get('n_ctx', 4096),
+            n_gpu_layers=cpu_section.get('n_gpu_layers', 0)
+        ),
+        planner=PlannerConfig(
+            enabled=planner_section.get('enabled', False),
+            execution_timeout=planner_section.get('execution_timeout', 120.0),
+            providers=parse_providers(planner_section, 'planner')
+        ),
+        merge=MergeConfig(
+            enabled=merge_section.get('enabled', False),
+            providers=parse_providers(merge_section, 'merge')
+        ),
+        agent_config=AgentConfig(
+            default_agent=agent_section.get('default_agent', 'default')
+        )
     )
 
 
 # --- Beispiel-Nutzung ---
 if __name__ == '__main__':
-    print("Versuche Konfiguration zu laden...")
+    print("Lade vollständige SelfAI-Konfiguration...")
     try:
         config = load_configuration()
-        print("✔️ Konfiguration erfolgreich geladen!")
-        print("\n--- MiniMax-Konfiguration ---")
-        print(f"Base URL: {config.base_url}")
-        print(f"Modell: {config.model}")
-        print("Headers:", {k: v for k, v in config.headers.items() if k != 'Authorization'})
-
+        print("✅ Vollständige SelfAI-Konfiguration erfolgreich geladen!")
+        
+        print("\n" + "="*50)
+        print("🔧 MINIMAX KONFIGURATION")
+        print("="*50)
+        print(f"API Base: {config.minimax_config.api_base}")
+        print(f"Modell: {config.minimax_config.model}")
+        print(f"Enabled: {config.minimax_config.enabled}")
+        
+        print("\n" + "="*50)
+        print("⚙️  SYSTEM KONFIGURATION")
+        print("="*50)
+        print(f"Streaming Enabled: {config.system.streaming_enabled}")
+        print(f"Stream Timeout: {config.system.stream_timeout}s")
+        
+        print("\n" + "="*50)
+        print("🖥️  CPU FALLBACK KONFIGURATION")
+        print("="*50)
+        print(f"Model Path: {config.cpu_fallback.model_path}")
+        print(f"Context Length: {config.cpu_fallback.n_ctx}")
+        print(f"GPU Layers: {config.cpu_fallback.n_gpu_layers}")
+        
+        print("\n" + "="*50)
+        print("🧠 PLANNER KONFIGURATION (DPPM)")
+        print("="*50)
+        print(f"Enabled: {config.planner.enabled}")
+        print(f"Execution Timeout: {config.planner.execution_timeout}s")
+        print(f"Anzahl Provider: {len(config.planner.providers)}")
+        for i, provider in enumerate(config.planner.providers):
+            print(f"  Provider {i+1}: {provider.name} ({provider.type})")
+        
+        print("\n" + "="*50)
+        print("🔗 MERGE KONFIGURATION")
+        print("="*50)
+        print(f"Enabled: {config.merge.enabled}")
+        print(f"Anzahl Provider: {len(config.merge.providers)}")
+        for i, provider in enumerate(config.merge.providers):
+            print(f"  Provider {i+1}: {provider.name} ({provider.type})")
+        
+        print("\n" + "="*50)
+        print("🤖 AGENT KONFIGURATION")
+        print("="*50)
+        print(f"Default Agent: {config.agent_config.default_agent}")
+        
     except (FileNotFoundError, ValueError) as e:
         print(f"❌ FEHLER: {e}")
         sys.exit(1)
