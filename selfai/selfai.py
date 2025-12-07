@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -358,6 +359,16 @@ def _select_merge_agent_from_plan(
         return agent
 
     return agent_manager.active_agent
+
+
+def _create_provider_headers(provider) -> dict[str, str] | None:
+    """Erstellt Headers für Provider basierend auf api_key_env."""
+    headers = {}
+    if hasattr(provider, 'api_key_env') and provider.api_key_env:
+        api_key = os.getenv(provider.api_key_env, '')
+        if api_key:
+            headers['Authorization'] = f'Bearer {api_key}'
+    return headers if headers else None
 
 
 def _execute_merge_phase(
@@ -784,6 +795,37 @@ def main():
     backend_names = [backend["name"] for backend in execution_backends]
     ui.status(f"Verfügbare Backends: {', '.join(backend_names)}", "info")
 
+    # FIX: Planner Provider Loading mit korrekten Headers
+    if planner_cfg and planner_cfg.enabled:
+        for provider in planner_cfg.providers:
+            try:
+                headers = _create_provider_headers(provider)
+                interface = PlannerOllamaInterface(
+                    base_url=provider.base_url,
+                    model=provider.model,
+                    timeout=provider.timeout,
+                    max_tokens=provider.max_tokens,
+                    headers=headers,
+                )
+                planner_providers[provider.name] = {
+                    "type": provider.type,
+                    "interface": interface,
+                    "model": provider.model,
+                    "base_url": provider.base_url,
+                    "max_tokens": provider.max_tokens,
+                    "timeout": provider.timeout,
+                }
+                planner_provider_order.append(provider.name)
+                ui.status(
+                    f"Planner-Provider '{provider.name}' ({provider.type}) aktiv.",
+                    "info",
+                )
+            except Exception as exc:
+                ui.status(
+                    f"Planner-Provider '{provider.name}' Fehler: {exc}",
+                    "warning",
+                )
+
     if planner_providers:
         stored_provider = _load_active_planner(memory_system)
         if stored_provider and stored_provider in planner_providers:
@@ -797,15 +839,17 @@ def main():
     else:
         ui.status("Kein Planner-Provider verfügbar.", "warning")
 
+    # FIX: Merge Provider Loading mit korrekten Headers
     if merge_cfg and merge_cfg.enabled:
         for provider in merge_cfg.providers:
             try:
+                headers = _create_provider_headers(provider)
                 interface = MergeOllamaInterface(
                     base_url=provider.base_url,
                     model=provider.model,
                     timeout=provider.timeout,
                     max_tokens=provider.max_tokens,
-                    headers=provider.headers,
+                    headers=headers,
                 )
                 merge_providers[provider.name] = {
                     "type": provider.type,
