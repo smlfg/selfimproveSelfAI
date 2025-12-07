@@ -22,24 +22,41 @@ system:
 
 # --- Agent Configuration ---
 agent_config:
-  default_agent: "code_helfer" # The default agent to load on startup
+  default_agent: "local-ollama" # The default provider name from the list below
 
-# --- Planner (Ollama, optional) ---
+# --- Planner Providers ---
+# The planner layer uses one of these providers to reason about tasks.
 planner:
-  enabled: false # Enable Ollama-based planning layer
+  enabled: true # Enable the planning layer
   execution_timeout: 120.0 # Seconds allowed per Subtask LLM execution
   providers:
+    - name: minimax-planner
+      type: openai_compatible
+      base_url: "https://api.minimax.io/v1"
+      model: "MiniMax-M2" # Specify the MiniMax model
+      timeout: 180.0
+      max_tokens: 1536
+      api_key_env: MINIMAX_API_KEY # Tells loader to get key from this .env variable
+      # api_key_header: Authorization # This is the default, so it's optional
+
     - name: ollama-cloud
-      type: remote_ollama # or local_ollama
+      type: openai_compatible # Technically also OpenAI compatible
       base_url: "https://api.ollama.ai"
       model: "qwen2.5:3b-instruct"
       timeout: 120.0
       max_tokens: 1024
-      headers:
-        Authorization: "Bearer ${OLLAMA_CLOUD_API_KEY}"
+      api_key_env: OLLAMA_CLOUD_API_KEY # Example for another cloud key
+
     - name: local-ollama
       type: local_ollama
       base_url: "http://localhost:11434"
       model: "gemma3:1b"
       timeout: 180.0
       max_tokens: 768
+      # No api_key_env needed for local Ollama
+
+# --- Merge Provider (optional) ---
+# Defines providers for the final merge step. Structure is identical to planner.
+merge:
+  enabled: false
+  providers: []

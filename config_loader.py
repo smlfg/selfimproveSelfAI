@@ -1,439 +1,180 @@
-import os
-import re
-import sys
+from dataclasses import dataclass, field
+from typing import List, Optional
 import yaml
+from pathlib import Path
 from dotenv import load_dotenv
-from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional
+import os
 
-
-ENV_VAR_PATTERN = re.compile(r"\$\{([A-Z0-9_]+)\}")
-
-
-def _resolve_env_template(value: Any) -> Any:
-    if not isinstance(value, str):
-        return value
-
-    def replace(match: re.Match[str]) -> str:
-        var_name = match.group(1)
-        env_val = os.getenv(var_name)
-        if env_val is None:
-            return match.group(0)
-        return env_val
-
-    return ENV_VAR_PATTERN.sub(replace, value)
-
-
-# --- Dataclasses for structured configuration ---
 @dataclass
-class NPUConfig:
+class MinimaxConfig:
     api_key: str
-    base_url: str
-    workspace_slug: str
-
-@dataclass
-class CPUConfig:
-    model_path: str
-    n_ctx: int
-    n_gpu_layers: int
+    api_base: str = "https://api.minimax.io/v1"
+    model: str = "openai/MiniMax-M2"
+    enabled: bool = True
 
 @dataclass
 class SystemConfig:
-    streaming_enabled: bool
-    stream_timeout: float | None = None
+    streaming_enabled: bool = True
+    stream_timeout: float = 60.0
 
 @dataclass
-class AgentConfig:
-    default_agent: str
+class NPUProviderConfig:
+    base_url: str = "http://localhost:3001/api/v1"
+    workspace_slug: str = "main"
+    api_key: str = ""
 
 @dataclass
-class PlannerProviderConfig:
+class CPUFallbackConfig:
+    model_path: str = "Phi-3-mini-4k-instruct.Q4_K_M.gguf"
+    n_ctx: int = 4096
+    n_gpu_layers: int = 0
+
+@dataclass
+class ProviderConfig:
     name: str
     type: str
     base_url: str
     model: str
-    timeout: float
-    max_tokens: int
-    headers: Dict[str, str]
-
+    timeout: float = 180.0
+    max_tokens: int = 1024
+    api_key_env: Optional[str] = None
 
 @dataclass
 class PlannerConfig:
-    enabled: bool
-    execution_timeout: float
-    providers: list[PlannerProviderConfig]
-
-@dataclass
-class MergeProviderConfig:
-    name: str
-    type: str
-    base_url: str
-    model: str
-    timeout: float
-    max_tokens: int
-    headers: Dict[str, str]
-
+    enabled: bool = False
+    execution_timeout: float = 120.0
+    providers: List[ProviderConfig] = field(default_factory=list)
 
 @dataclass
 class MergeConfig:
-    enabled: bool
-    providers: list[MergeProviderConfig]
+    enabled: bool = False
+    providers: List[ProviderConfig] = field(default_factory=list)
+
+@dataclass
+class AgentConfig:
+    default_agent: str = "default"
 
 @dataclass
 class AppConfig:
-    npu_provider: NPUConfig
-    cpu_fallback: CPUConfig
+    minimax_config: MinimaxConfig
     system: SystemConfig
-    agent_config: AgentConfig
+    npu_provider: NPUProviderConfig
+    cpu_fallback: CPUFallbackConfig
     planner: PlannerConfig
     merge: MergeConfig
+    agent_config: AgentConfig
 
-# --- Loader Logic ---
-def _normalize_config(raw_config: Dict[str, Any]) -> Dict[str, Any]:
-    """Accepts either the structured SelfAI config or the simple NPU config template."""
-
-    if not isinstance(raw_config, dict):
-        raise ValueError("Konfigurationsdatei enthält keine gültigen Schlüssel/Wert-Paare.")
-
-    if 'npu_provider' in raw_config:
-        # Already in structured format – ensure nested dicts exist.
-        config_data = dict(raw_config)
-        config_data.setdefault('cpu_fallback', {})
-        config_data.setdefault('system', {})
-        config_data.setdefault('agent_config', {})
-        planner_section = config_data.setdefault('planner', {})
-        if 'providers' not in planner_section:
-            provider_entry = {
-                'name': planner_section.get('name', 'planner-local'),
-                'type': planner_section.get('type', 'local_ollama'),
-                'base_url': planner_section.get('base_url', 'http://localhost:11434'),
-                'model': planner_section.get('model', 'gemma3:1b'),
-                'timeout': planner_section.get('timeout', 180.0),
-                'max_tokens': planner_section.get('max_tokens', 768),
-            }
-            if 'headers' in planner_section:
-                provider_entry['headers'] = planner_section['headers']
-            if 'api_key_env' in planner_section:
-                provider_entry['api_key_env'] = planner_section['api_key_env']
-            if 'api_key_header' in planner_section:
-                provider_entry['api_key_header'] = planner_section['api_key_header']
-            planner_section['providers'] = [provider_entry]
-        planner_section.setdefault('enabled', planner_section.get('enabled', False))
-        planner_section.setdefault('execution_timeout', planner_section.get('execution_timeout', 120.0))
-        merge_section = config_data.setdefault('merge', {})
-        if 'providers' not in merge_section:
-            merge_section['providers'] = []
-        merge_section.setdefault('enabled', merge_section.get('enabled', False))
-        return config_data
-
-    # Fallback: treat it as the simple chatbot configuration
-    base_url = raw_config.get('model_server_base_url') or raw_config.get('base_url')
-    workspace_slug = raw_config.get('workspace_slug') or raw_config.get('workspace')
-    stream_enabled = raw_config.get('stream')
-
-    config_data = {
-        'npu_provider': {
-            'base_url': base_url or 'http://localhost:3001/api/v1',
-            'workspace_slug': workspace_slug or 'default',
-        },
-        'cpu_fallback': raw_config.get('cpu_fallback') or {
-            'model_path': 'Phi-3-mini-4k-instruct.Q4_K_M.gguf',
-            'n_ctx': 4096,
-            'n_gpu_layers': 0,
-        },
-        'system': {
-            'streaming_enabled': True if stream_enabled is None else bool(stream_enabled),
-            'stream_timeout': raw_config.get('stream_timeout'),
-        },
-        'agent_config': {
-            'default_agent': raw_config.get('default_agent', 'code_helfer'),
-        },
-    }
-
-    if 'planner' in raw_config:
-        planner_section = raw_config.get('planner') or {}
-        if not isinstance(planner_section, dict):
-            raise ValueError("planner-Sektion muss ein Objekt sein")
-        planner_section.setdefault(
-            'enabled', bool(raw_config.get('planner_enabled', False))
-        )
-        planner_section.setdefault(
-            'execution_timeout', raw_config.get('planner_execution_timeout', 120.0)
-        )
-        if 'providers' not in planner_section:
-            planner_section['providers'] = [
-                {
-                    'name': 'planner-local',
-                    'type': 'local_ollama',
-                    'base_url': raw_config.get('planner_base_url', 'http://localhost:11434'),
-                    'model': raw_config.get('planner_model', 'gemma3:1b'),
-                    'timeout': raw_config.get('planner_timeout', 180.0),
-                    'max_tokens': raw_config.get('planner_max_tokens', 768),
-                }
-            ]
-        config_data['planner'] = planner_section
-        merge_section = raw_config.get('merge') or {}
-        if not isinstance(merge_section, dict):
-            raise ValueError("merge-Sektion muss ein Objekt sein")
-        merge_section.setdefault('enabled', bool(merge_section.get('enabled', False)))
-        if 'providers' not in merge_section:
-            merge_section['providers'] = []
-        config_data['merge'] = merge_section
-    else:
-        config_data['planner'] = {
-            'enabled': bool(raw_config.get('planner_enabled', False)),
-            'execution_timeout': raw_config.get('planner_execution_timeout', 120.0),
-            'providers': [
-                {
-                    'name': 'planner-local',
-                    'type': 'local_ollama',
-                    'base_url': raw_config.get('planner_base_url', 'http://localhost:11434'),
-                    'model': raw_config.get('planner_model', 'gemma3:1b'),
-                    'timeout': raw_config.get('planner_timeout', 180.0),
-                    'max_tokens': raw_config.get('planner_max_tokens', 768),
-                }
-            ],
-        }
-        merge_section = raw_config.get('merge') or {}
-        if not isinstance(merge_section, dict):
-            merge_section = {}
-        merge_section.setdefault('enabled', bool(merge_section.get('enabled', False)))
-        merge_section.setdefault('providers', merge_section.get('providers', []))
-        config_data['merge'] = merge_section
-
-    # Preserve optional API key if present for fallback lookup later
-    api_key = raw_config.get('api_key')
-    if api_key:
-        config_data['npu_provider']['api_key'] = api_key
-
-    return config_data
-
-
-def load_configuration(config_path: str = 'config.yaml') -> AppConfig:
-    """
-    Loads configuration from a YAML file and environment variables,
-    validates them, and returns a structured AppConfig object.
-    """
-    # Load .env file for secrets
+def load_configuration():
     load_dotenv()
+    config_path = Path("config.yaml")
 
-    # --- Load YAML configuration file ---
-    if not os.path.exists(config_path):
-        raise FileNotFoundError(
-            f"'{config_path}' not found. "
-            f"Please copy 'config.yaml.template' to '{config_path}' and configure it."
-        )
-    with open(config_path, 'r') as f:
-        try:
-            loaded_yaml = yaml.safe_load(f)
-        except yaml.YAMLError as e:
-            raise ValueError(f"Error parsing '{config_path}': {e}")
-
-    config_data = _normalize_config(loaded_yaml or {})
-
-    # --- Load secrets and validate ---
-    env_api_key = os.getenv('API_KEY')
-    file_api_key = None
-    npu_section = config_data.get('npu_provider', {})
-    if isinstance(npu_section, dict):
-        file_api_key = npu_section.get('api_key')
-    api_key = env_api_key or file_api_key
-
-    if not api_key or api_key == "your-anythingllm-api-key":
-        raise ValueError(
-            "API_KEY is not set. "
-            "Please set it in your .env file (copy from .env.example)."
+    if not config_path.exists():
+        # Fallback: create minimal config
+        return AppConfig(
+            minimax_config=MinimaxConfig(
+                api_key=os.getenv("MINIMAX_API_KEY", ""),
+                api_base="https://api.minimax.io/v1",
+                model="openai/MiniMax-M2",
+                enabled=True
+            ),
+            system=SystemConfig(),
+            npu_provider=NPUProviderConfig(),
+            cpu_fallback=CPUFallbackConfig(),
+            planner=PlannerConfig(),
+            merge=MergeConfig(),
+            agent_config=AgentConfig()
         )
 
-    # --- Create structured config, providing defaults where necessary ---
-    try:
-        npu_section = config_data.get('npu_provider', {})
-        missing_npu_keys = [key for key in ('base_url', 'workspace_slug') if key not in npu_section or not npu_section.get(key)]
-        if missing_npu_keys:
-            raise ValueError(
-                "Missing required NPU configuration keys: " + ", ".join(missing_npu_keys)
-            )
-        npu_config = NPUConfig(
-            api_key=api_key,
-            base_url=npu_section['base_url'],
-            workspace_slug=npu_section['workspace_slug']
+    with open(config_path) as f:
+        data = yaml.safe_load(f) or {}
+
+    # MiniMax Config
+    minimax_data = data.get("minimax", {})
+    minimax_cfg = MinimaxConfig(
+        api_key=os.getenv("MINIMAX_API_KEY", minimax_data.get("api_key", "")),
+        api_base=minimax_data.get("api_base", "https://api.minimax.io/v1"),
+        model=minimax_data.get("model", "openai/MiniMax-M2"),
+        enabled=minimax_data.get("enabled", True)
+    )
+
+    # System Config
+    system_data = data.get("system", {})
+    system_cfg = SystemConfig(
+        streaming_enabled=system_data.get("streaming_enabled", True),
+        stream_timeout=system_data.get("stream_timeout", 60.0)
+    )
+
+    # NPU Provider Config
+    npu_data = data.get("npu_provider", {})
+    npu_cfg = NPUProviderConfig(
+        base_url=npu_data.get("base_url", "http://localhost:3001/api/v1"),
+        workspace_slug=npu_data.get("workspace_slug", "main"),
+        api_key=os.getenv("API_KEY", npu_data.get("api_key", ""))
+    )
+
+    # CPU Fallback Config
+    cpu_data = data.get("cpu_fallback", {})
+    cpu_cfg = CPUFallbackConfig(
+        model_path=cpu_data.get("model_path", "Phi-3-mini-4k-instruct.Q4_K_M.gguf"),
+        n_ctx=cpu_data.get("n_ctx", 4096),
+        n_gpu_layers=cpu_data.get("n_gpu_layers", 0)
+    )
+
+    # Planner Config
+    planner_data = data.get("planner", {})
+    planner_providers = []
+    for p in planner_data.get("providers", []):
+        api_key_env = p.get("api_key_env")
+        provider = ProviderConfig(
+            name=p["name"],
+            type=p["type"],
+            base_url=p["base_url"],
+            model=p["model"],
+            timeout=p.get("timeout", 180.0),
+            max_tokens=p.get("max_tokens", 1024),
+            api_key_env=api_key_env
         )
+        planner_providers.append(provider)
 
-        cpu_section = config_data.get('cpu_fallback', {})
-        model_name = cpu_section.get('model_path', 'Phi-3-mini-4k-instruct.Q4_K_M.gguf')
-        full_model_path = os.path.join('models', model_name)
+    planner_cfg = PlannerConfig(
+        enabled=planner_data.get("enabled", False),
+        execution_timeout=planner_data.get("execution_timeout", 120.0),
+        providers=planner_providers
+    )
 
-        cpu_config = CPUConfig(
-            model_path=full_model_path,
-            n_ctx=cpu_section.get('n_ctx', 4096),
-            n_gpu_layers=cpu_section.get('n_gpu_layers', 0)
+    # Merge Config
+    merge_data = data.get("merge", {})
+    merge_providers = []
+    for p in merge_data.get("providers", []):
+        api_key_env = p.get("api_key_env")
+        provider = ProviderConfig(
+            name=p["name"],
+            type=p["type"],
+            base_url=p["base_url"],
+            model=p["model"],
+            timeout=p.get("timeout", 180.0),
+            max_tokens=p.get("max_tokens", 2048),
+            api_key_env=api_key_env
         )
+        merge_providers.append(provider)
 
-        system_section = config_data.get('system', {})
-        system_config = SystemConfig(
-            streaming_enabled=system_section.get('streaming_enabled', True),
-            stream_timeout=system_section.get('stream_timeout')
-        )
+    merge_cfg = MergeConfig(
+        enabled=merge_data.get("enabled", False),
+        providers=merge_providers
+    )
 
-        planner_raw = config_data.get('planner', {})
+    # Agent Config
+    agent_data = data.get("agent_config", {})
+    agent_cfg = AgentConfig(
+        default_agent=agent_data.get("default_agent", "default")
+    )
 
-        def _to_float(value: Any, default: float) -> float:
-            try:
-                return float(value)
-            except (TypeError, ValueError):
-                return default
-
-        def _to_int(value: Any, default: int) -> int:
-            try:
-                return int(value)
-            except (TypeError, ValueError):
-                return default
-
-        provider_entries: List[PlannerProviderConfig] = []
-        raw_providers: Iterable[Dict[str, Any]] = planner_raw.get('providers', [])
-        for index, provider in enumerate(raw_providers, start=1):
-            if not isinstance(provider, dict):
-                raise ValueError("Planner provider-Eintrag muss ein Objekt sein")
-
-            name = provider.get('name') or f"planner-{index}"
-            provider_type = provider.get('type', 'local_ollama')
-            base_url = provider.get('base_url')
-            model = provider.get('model')
-            if not base_url or not model:
-                raise ValueError(
-                    f"Planner provider '{name}' benötigt 'base_url' und 'model'"
-                )
-
-            timeout = _to_float(provider.get('timeout', planner_raw.get('timeout', 180.0)), 180.0)
-            max_tokens = _to_int(provider.get('max_tokens', planner_raw.get('max_tokens', 768)), 768)
-
-            headers_raw = provider.get('headers', {}) or {}
-            if not isinstance(headers_raw, dict):
-                raise ValueError(f"Planner provider '{name}' hat ungültige headers")
-
-            resolved_headers: Dict[str, str] = {}
-            for header_key, header_value in headers_raw.items():
-                resolved_headers[header_key] = str(_resolve_env_template(header_value))
-
-            api_key_env = provider.get('api_key_env')
-            if api_key_env:
-                api_value = os.getenv(api_key_env)
-                if api_value:
-                    header_name = provider.get('api_key_header', 'Authorization')
-                    if header_name.lower() == 'authorization' and not api_value.startswith('Bearer '):
-                        api_value = f"Bearer {api_value}"
-                    resolved_headers.setdefault(header_name, api_value)
-
-            provider_entries.append(
-                PlannerProviderConfig(
-                    name=name,
-                    type=provider_type,
-                    base_url=base_url,
-                    model=model,
-                    timeout=timeout,
-                    max_tokens=max_tokens,
-                    headers=resolved_headers,
-                )
-            )
-
-        planner_config = PlannerConfig(
-            enabled=bool(planner_raw.get('enabled', False)),
-            execution_timeout=_to_float(planner_raw.get('execution_timeout', 120.0), 120.0),
-            providers=provider_entries,
-        )
-
-        merge_raw = config_data.get('merge', {}) or {}
-        merge_provider_entries: List[MergeProviderConfig] = []
-        raw_merge_providers: Iterable[Dict[str, Any]] = merge_raw.get('providers', []) or []
-        for index, provider in enumerate(raw_merge_providers, start=1):
-            if not isinstance(provider, dict):
-                raise ValueError("Merge provider-Eintrag muss ein Objekt sein")
-
-            name = provider.get('name') or f"merge-{index}"
-            provider_type = provider.get('type', 'local_ollama')
-            base_url = provider.get('base_url')
-            model = provider.get('model')
-            if not base_url or not model:
-                raise ValueError(
-                    f"Merge provider '{name}' benötigt 'base_url' und 'model'"
-                )
-
-            timeout = _to_float(provider.get('timeout', merge_raw.get('timeout', 180.0)), 180.0)
-            max_tokens = _to_int(provider.get('max_tokens', merge_raw.get('max_tokens', 1536)), 1536)
-
-            headers_raw = provider.get('headers', {}) or {}
-            if not isinstance(headers_raw, dict):
-                raise ValueError(f"Merge provider '{name}' hat ungültige headers")
-
-            resolved_headers: Dict[str, str] = {}
-            for header_key, header_value in headers_raw.items():
-                resolved_headers[header_key] = str(_resolve_env_template(header_value))
-
-            api_key_env = provider.get('api_key_env')
-            if api_key_env:
-                api_value = os.getenv(api_key_env)
-                if api_value:
-                    header_name = provider.get('api_key_header', 'Authorization')
-                    if header_name.lower() == 'authorization' and not api_value.startswith('Bearer '):
-                        api_value = f"Bearer {api_value}"
-                    resolved_headers.setdefault(header_name, api_value)
-
-            merge_provider_entries.append(
-                MergeProviderConfig(
-                    name=name,
-                    type=provider_type,
-                    base_url=base_url,
-                    model=model,
-                    timeout=timeout,
-                    max_tokens=max_tokens,
-                    headers=resolved_headers,
-                )
-            )
-
-        merge_config = MergeConfig(
-            enabled=bool(merge_raw.get('enabled', False)),
-            providers=merge_provider_entries,
-        )
-
-        agent_section = config_data.get('agent_config', {})
-        agent_config = AgentConfig(
-            default_agent=agent_section.get('default_agent', 'default')
-        )
-
-        return AppConfig(npu_config, cpu_config, system_config, agent_config, planner_config, merge_config)
-
-    except KeyError as e:
-        raise ValueError(f"Missing required key in '{config_path}': {e}")
-
-# --- Example Usage ---
-if __name__ == '__main__':
-    print("Attempting to load configuration...")
-    try:
-        config = load_configuration()
-        print("✔️ Configuration loaded successfully!")
-        print("\n--- NPU Config ---")
-        print(f"Base URL: {config.npu_provider.base_url}")
-        print(f"Workspace: {config.npu_provider.workspace_slug}")
-        print(f"API Key Loaded: {'Yes' if config.npu_provider.api_key else 'No'}")
-        print("\n--- CPU Fallback Config ---")
-        print(f"Model Path: {config.cpu_fallback.model_path}")
-        print(f"Context Size: {config.cpu_fallback.n_ctx}")
-        print("\n--- Planner Config ---")
-        print(f"Enabled: {config.planner.enabled}")
-        print(f"Execution Timeout: {config.planner.execution_timeout}")
-        print(f"Providers: {len(config.planner.providers)} registriert")
-        for provider in config.planner.providers:
-            print(
-                f"  - {provider.name} ({provider.type}) => {provider.base_url} / {provider.model}"
-            )
-        print("\n--- Merge Config ---")
-        print(f"Enabled: {config.merge.enabled}")
-        print(f"Providers: {len(config.merge.providers)} registriert")
-        for provider in config.merge.providers:
-            print(
-                f"  - {provider.name} ({provider.type}) => {provider.base_url} / {provider.model}"
-            )
-
-    except (FileNotFoundError, ValueError) as e:
-        print(f"❌ ERROR: {e}")
-        sys.exit(1)
+    return AppConfig(
+        minimax_config=minimax_cfg,
+        system=system_cfg,
+        npu_provider=npu_cfg,
+        cpu_fallback=cpu_cfg,
+        planner=planner_cfg,
+        merge=merge_cfg,
+        agent_config=agent_cfg
+    )
