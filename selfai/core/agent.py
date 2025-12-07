@@ -1,14 +1,28 @@
 import json
 from typing import List, Dict
 
+from selfai.config_loader import AppConfig # Import for type hint
 from selfai.core.model_interface import ModelInterface, Message
 from selfai.tools.tool_registry import get_tool, get_all_tool_schemas
 
 class Agent:
     """The main agent class that orchestrates the tool-calling loop."""
-    def __init__(self, provider_name: str = "local-ollama"):
-        """Initializes the agent with a model interface and tools."""
-        self.model = ModelInterface(provider_name=provider_name)
+    def __init__(self, config: AppConfig):
+        """Initializes the agent with a model interface and tools based on the provided configuration."""
+        if not config.planner or not config.planner.providers:
+            raise ValueError("Planner configuration with at least one provider is required.")
+
+        # Use the default agent name from config to find the right provider
+        default_provider_name = config.agent_config.default_agent
+        
+        provider_config = next((p for p in config.planner.providers if p.name == default_provider_name), None)
+
+        if not provider_config:
+            # If default is not found, fall back to the first available provider
+            provider_config = config.planner.providers[0]
+            print(f"[Agent] Warning: Default provider '{default_provider_name}' not found. Falling back to '{provider_config.name}'.")
+
+        self.model = ModelInterface(provider_config=provider_config)
         self.tools = {schema['name']: get_tool(schema['name']) for schema in get_all_tool_schemas()}
         self.system_prompt = self._build_system_prompt()
 
