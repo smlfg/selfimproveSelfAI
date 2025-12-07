@@ -599,6 +599,25 @@ def _select_merge_backend(
     )
     return backends[choice]
 
+def _load_minimax(config, ui: TerminalUI):
+    """Lädt MiniMax als primäres Cloud-Backend."""
+    try:
+        minimax_config = getattr(config, 'minimax_config', None)
+        if not minimax_config or not minimax_config.enabled:
+            return None, None
+            
+        from selfai.core.minimax_interface import MinimaxInterface
+        interface = MinimaxInterface(
+            api_key=minimax_config.api_key,
+            api_base=minimax_config.api_base,
+            model=minimax_config.model
+        )
+        ui.status("MiniMax Backend aktiviert (Cloud - Primary)", "success")
+        return interface, "MiniMax"
+    except Exception as exc:
+        ui.status(f"MiniMax konnte nicht geladen werden: {exc}", "warning")
+        return None, None
+
 def _load_anythingllm(config, streaming_enabled, ui: TerminalUI):
     try:
         stream_timeout = getattr(config.system, "stream_timeout", None)
@@ -697,7 +716,9 @@ def main():
     merge_providers: dict[str, dict[str, object]] = {}
     merge_provider_order: list[str] = []
     active_merge_provider: str | None = None
-    ui.status("Verbinde mit AnythingLLM (NPU)...", "info")
+    
+    ui.status("Lade LLM-Backends in Priority-Reihenfolge...", "info")
+    
     try:
         config = load_configuration()
         ui.status("Konfiguration geladen.", "success")
@@ -723,49 +744,78 @@ def main():
     except Exception as exc:
         ui.status(f"Unerwarteter Konfigurationsfehler: {exc}", "error")
 
-    if config and planner_cfg and planner_cfg.enabled:
-        for provider_cfg in planner_cfg.providers:
-            unresolved_headers = [
-                value
-                for value in provider_cfg.headers.values()
-                if isinstance(value, str) and "${" in value
-            ]
-            if unresolved_headers:
-                ui.status(
-                    f"Planner-Provider '{provider_cfg.name}' übersprungen: fehlende Zugangsdaten.",
-                    "warning",
-                )
-                continue
-            try:
-                interface = PlannerOllamaInterface(
-                    base_url=provider_cfg.base_url,
-                    model=provider_cfg.model,
-                    timeout=provider_cfg.timeout,
-                    max_tokens=provider_cfg.max_tokens,
-                    headers=provider_cfg.headers,
-                )
-                interface.healthcheck()
-                planner_providers[provider_cfg.name] = {
-                    "type": provider_cfg.type,
-                    "interface": interface,
-                    "model": provider_cfg.model,
-                    "base_url": provider_cfg.base_url,
+    # LLM Backend Loading - MiniMax als PRIMARY!
+    execution_backends: list[dict[str, object]] = []
+
+    # 1. MiniMax (Cloud - Primary)
+    if config:
+        interface_minimax, label_minimax = _load_minimax(config, ui)
+        if interface_minimax:
+            execution_backends.append(
+                {
+                    "interface": interface_minimax,
+                    "label": label_minimax or "MiniMax",
+                    "name": "minimax",
+                    "type": "cloud",
                 }
-                planner_provider_order.append(provider_cfg.name)
-                ui.status(
-                    f"Planner-Provider '{provider_cfg.name}' ({provider_cfg.type}) aktiv.",
-                    "success",
-                )
-            except PlannerError as exc:
-                ui.status(
-                    f"Planner-Provider '{provider_cfg.name}' nicht erreichbar: {exc}",
-                    "warning",
-                )
-            except Exception as exc:  # pragma: no cover - defensive
-                ui.status(
-                    f"Planner-Provider '{provider_cfg.name}' Fehler: {exc}",
-                    "warning",
-                )
+            )
+
+    # 2. AnythingLLM (NPU - Secondary)
+    if config:
+        interface_any, label_any = _load_anythingllm(
+            config, streaming_enabled, ui
+        )
+        if interface_any:
+            execution_backends.append(
+                {
+                    "interface": interface_any,
+                    "label": label_any or "AnythingLLM",
+                    "name": "anythingllm",
+                    "type": "npu",
+                }
+            )
+
+    # 3. QNN (Lokal - Tertiary)
+    ui.status("Prüfe lokale QNN-Backends...", "info")
+    interface_qnn, label_qnn = _load_qnn(models_root, ui)
+    if interface_qnn:
+        execution_backends.append(
+            {
+                "interface": interface_qnn,
+                "label": label_qnn or "QNN",
+                "name": "qnn",
+                "type": "qnn",
+            }
+        )
+
+    # 4. CPU (Lokal - Quaternary)
+    ui.status("Prüfe CPU-Backends...", "info")
+    interface_cpu, label_cpu = _load_cpu(models_root, ui)
+    if interface_cpu:
+        execution_backends.append(
+            {
+                "interface": interface_cpu,
+                "label": label_cpu or "CPU",
+                "name": "cpu",
+                "type": "cpu",
+            }
+        )
+
+    if not execution_backends:
+        ui.status(
+            "Keines der verfügbaren LLM-Backends (MiniMax, AnythingLLM, QNN, CPU) konnte geladen werden.",
+            "error",
+        )
+        ui.status("Bitte Konfiguration und Modelle prüfen.", "info")
+        return
+
+    # Set primary interface to first available backend (MiniMax preferred)
+    llm_interface = execution_backends[0]["interface"]
+    backend_label = execution_backends[0].get("label") or "Plan"
+    
+    ui.status(f"Primäres LLM-Backend: {backend_label}", "success")
+    backend_names = [backend["name"] for backend in execution_backends]
+    ui.status(f"Verfügbare Backends: {', '.join(backend_names)}", "info")
 
     if planner_providers:
         stored_provider = _load_active_planner(memory_system)
@@ -821,57 +871,6 @@ def main():
         )
     else:
         ui.status("Kein zusätzlicher Merge-Provider konfiguriert.", "info")
-
-    execution_backends: list[dict[str, object]] = []
-
-    if config:
-        interface_any, label_any = _load_anythingllm(
-            config, streaming_enabled, ui
-        )
-        if interface_any:
-            execution_backends.append(
-                {
-                    "interface": interface_any,
-                    "label": label_any or "AnythingLLM",
-                    "name": "anythingllm",
-                    "type": "npu",
-                }
-            )
-
-    ui.status("Prüfe lokale QNN-Backends...", "info")
-    interface_qnn, label_qnn = _load_qnn(models_root, ui)
-    if interface_qnn:
-        execution_backends.append(
-            {
-                "interface": interface_qnn,
-                "label": label_qnn or "QNN",
-                "name": "qnn",
-                "type": "qnn",
-            }
-        )
-
-    ui.status("Prüfe CPU-Backends...", "info")
-    interface_cpu, label_cpu = _load_cpu(models_root, ui)
-    if interface_cpu:
-        execution_backends.append(
-            {
-                "interface": interface_cpu,
-                "label": label_cpu or "CPU",
-                "name": "cpu",
-                "type": "cpu",
-            }
-        )
-
-    if not execution_backends:
-        ui.status(
-            "Keines der verfügbaren LLM-Backends (AnythingLLM, QNN, CPU) konnte geladen werden.",
-            "error",
-        )
-        ui.status("Bitte Konfiguration und Modelle prüfen.", "info")
-        return
-
-    llm_interface = execution_backends[0]["interface"]
-    backend_label = execution_backends[0].get("label") or "Plan"
 
     default_key = None
     if config and getattr(config, "agent_config", None):
