@@ -1,5 +1,5 @@
 import sys
-from selfai.config_loader import load_configuration
+from selfai.config_loader import load_configuration, MiniMaxConfig
 from selfai.core.agent import Agent
 
 def main():
@@ -7,7 +7,7 @@ def main():
     print("Initializing SelfAI Agent...")
     try:
         # Load configuration
-        config = load_configuration()
+        config: MiniMaxConfig = load_configuration()
         print("✔️ Configuration loaded successfully.")
 
         # Initialize agent with the loaded configuration
@@ -15,9 +15,13 @@ def main():
         print("🤖 Agent initialized. You can start chatting.")
         print("Type 'exit' or 'quit' to end the session.")
 
-    except (FileNotFoundError, ValueError) as e:
-        print(f"❌ Failed to initialize agent: {e}", file=sys.stderr)
+    except FileNotFoundError:
+        print("❌ Failed to initialize agent: Configuration file 'config.yaml' not found.", file=sys.stderr)
         print("Please ensure your 'config.yaml' is set up correctly.", file=sys.stderr)
+        sys.exit(1)
+    except ValueError as e:
+        print(f"❌ Failed to initialize agent: {e}", file=sys.stderr)
+        print("Please check your configuration file and environment variables.", file=sys.stderr)
         sys.exit(1)
     except Exception as e:
         print(f"❌ An unexpected error occurred during initialization: {e}", file=sys.stderr)
@@ -45,4 +49,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
