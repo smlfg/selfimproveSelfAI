@@ -1,62 +1,11 @@
-# SelfAI Hybrid Inference Configuration Template
+# MiniMax Configuration Template
 # Copy this file to config.yaml and adjust the values as needed.
 
-# --- NPU Provider (AnythingLLM) ---
-# Used for the primary NPU-accelerated backend.
-# The API_KEY is loaded securely from your .env file.
-npu_provider:
-  base_url: "http://localhost:3001/api/v1" # Local endpoint of the AnythingLLM server
-  workspace_slug: "main" # The workspace to use in AnythingLLM
-
-# --- CPU Fallback (llama-cpp-python) ---
-# Used when the NPU backend is unavailable.
-cpu_fallback:
-  # Path to the local GGUF model file inside the 'models' directory.
-  model_path: "Phi-3-mini-4k-instruct.Q4_K_M.gguf"
-  n_ctx: 4096 # Maximum token context length
-  n_gpu_layers: 0 # Number of layers to offload to GPU. 0 for pure CPU.
-
-# --- System Settings ---
-system:
-  streaming_enabled: true # Enable word-by-word streaming output
-
-# --- Agent Configuration ---
-agent_config:
-  default_agent: "local-ollama" # The default provider name from the list below
-
-# --- Planner Providers ---
-# The planner layer uses one of these providers to reason about tasks.
-planner:
-  enabled: true # Enable the planning layer
-  execution_timeout: 120.0 # Seconds allowed per Subtask LLM execution
-  providers:
-    - name: minimax-planner
-      type: openai_compatible
-      base_url: "https://api.minimax.io/v1"
-      model: "MiniMax-M2" # Specify the MiniMax model
-      timeout: 180.0
-      max_tokens: 1536
-      api_key_env: MINIMAX_API_KEY # Tells loader to get key from this .env variable
-      # api_key_header: Authorization # This is the default, so it's optional
-
-    - name: ollama-cloud
-      type: openai_compatible # Technically also OpenAI compatible
-      base_url: "https://api.ollama.ai"
-      model: "qwen2.5:3b-instruct"
-      timeout: 120.0
-      max_tokens: 1024
-      api_key_env: OLLAMA_CLOUD_API_KEY # Example for another cloud key
-
-    - name: local-ollama
-      type: local_ollama
-      base_url: "http://localhost:11434"
-      model: "gemma3:1b"
-      timeout: 180.0
-      max_tokens: 768
-      # No api_key_env needed for local Ollama
-
-# --- Merge Provider (optional) ---
-# Defines providers for the final merge step. Structure is identical to planner.
-merge:
-  enabled: false
-  providers: []
+# --- MiniMax API Configuration ---
+minimax:
+  base_url: "https://api.minimax.chat/v1"  # MiniMax API endpoint
+  model: "abab6.5s-chat"  # Model to use for completions
+  
+  # Optional additional headers
+  headers:
+    # Example: "X-Custom-Header": "custom-value"
