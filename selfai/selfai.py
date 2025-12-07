@@ -13,7 +13,7 @@ sys.path.insert(0, str(project_root.parent))
 
 from config_loader import load_configuration
 from selfai.core.agent_manager import Agent, AgentManager
-from selfai.core.anythingllm_interface import AnythingLLMInterface
+from selfai.core.minimax_interface import MinimaxInterface
 from selfai.core.local_llm_interface import LocalLLMInterface
 from selfai.core.execution_dispatcher import ExecutionDispatcher, ExecutionError
 from selfai.core.memory_system import MemorySystem
@@ -98,7 +98,7 @@ def _build_fallback_plan(goal_text: str, agent_key: str) -> dict[str, object]:
                 "title": "Analyse des Ziels",
                 "objective": f"Analysiere das Ziel: {sanitized_goal}",
                 "agent_key": agent_key,
-                "engine": "anythingllm",
+                "engine": "minimax",
                 "parallel_group": 1,
                 "depends_on": [],
                 "notes": "Automatisch erzeugter Fallback-Plan – bitte Ergebnis kritisch prüfen.",
@@ -108,7 +108,7 @@ def _build_fallback_plan(goal_text: str, agent_key: str) -> dict[str, object]:
                 "title": "Antwort formulieren",
                 "objective": f"Formuliere eine ausführliche Antwort für: {sanitized_goal}",
                 "agent_key": agent_key,
-                "engine": "anythingllm",
+                "engine": "minimax",
                 "parallel_group": 2,
                 "depends_on": ["S1"],
                 "notes": "Automatisch erzeugter Fallback-Plan.",
@@ -555,14 +555,14 @@ def _select_merge_backend(
 ) -> dict[str, object]:
     """Erlaubt dem Nutzer die Auswahl des Merge-Backends."""
 
-    default_label = backend_label or "AnythingLLM"
+    default_label = backend_label or "MiniMax"
     backends: list[dict[str, object]] = [
         {
             "label": default_label,
-            "type": "anythingllm",
+            "type": "minimax",
             "interface": llm_interface,
             "max_tokens": 2048,
-            "name": "anythingllm",
+            "name": "minimax",
         }
     ]
     options: list[str] = [f"{default_label} (aktuelles LLM)"]
@@ -606,7 +606,6 @@ def _load_minimax(config, ui: TerminalUI):
         if not minimax_config or not minimax_config.enabled:
             return None, None
             
-        from selfai.core.minimax_interface import MinimaxInterface
         interface = MinimaxInterface(
             api_key=minimax_config.api_key,
             api_base=minimax_config.api_base,
@@ -616,23 +615,6 @@ def _load_minimax(config, ui: TerminalUI):
         return interface, "MiniMax"
     except Exception as exc:
         ui.status(f"MiniMax konnte nicht geladen werden: {exc}", "warning")
-        return None, None
-
-def _load_anythingllm(config, streaming_enabled, ui: TerminalUI):
-    try:
-        stream_timeout = getattr(config.system, "stream_timeout", None)
-        timeout_value = float(stream_timeout) if stream_timeout is not None else 60.0
-        interface = AnythingLLMInterface(
-            api_key=config.npu_provider.api_key,
-            base_url=config.npu_provider.base_url,
-            workspace_slug=config.npu_provider.workspace_slug,
-            stream=streaming_enabled,
-            timeout=timeout_value,
-        )
-        ui.status("AnythingLLM-Verbindung aktiv. NPU-Inferenz bereit.", "success")
-        return interface, "anythingllm"
-    except Exception as exc:
-        ui.status(f"AnythingLLM nicht verfügbar: {exc}", "warning")
         return None, None
 
 
@@ -760,22 +742,7 @@ def main():
                 }
             )
 
-    # 2. AnythingLLM (NPU - Secondary)
-    if config:
-        interface_any, label_any = _load_anythingllm(
-            config, streaming_enabled, ui
-        )
-        if interface_any:
-            execution_backends.append(
-                {
-                    "interface": interface_any,
-                    "label": label_any or "AnythingLLM",
-                    "name": "anythingllm",
-                    "type": "npu",
-                }
-            )
-
-    # 3. QNN (Lokal - Tertiary)
+    # 2. QNN (Lokal - Secondary)
     ui.status("Prüfe lokale QNN-Backends...", "info")
     interface_qnn, label_qnn = _load_qnn(models_root, ui)
     if interface_qnn:
@@ -788,7 +755,7 @@ def main():
             }
         )
 
-    # 4. CPU (Lokal - Quaternary)
+    # 3. CPU (Lokal - Tertiary)
     ui.status("Prüfe CPU-Backends...", "info")
     interface_cpu, label_cpu = _load_cpu(models_root, ui)
     if interface_cpu:
@@ -803,7 +770,7 @@ def main():
 
     if not execution_backends:
         ui.status(
-            "Keines der verfügbaren LLM-Backends (MiniMax, AnythingLLM, QNN, CPU) konnte geladen werden.",
+            "Keines der verfügbaren LLM-Backends (MiniMax, QNN, CPU) konnte geladen werden.",
             "error",
         )
         ui.status("Bitte Konfiguration und Modelle prüfen.", "info")
@@ -1260,15 +1227,15 @@ def main():
 
                 primary_backend = execution_backends[0]
                 default_merge_backend = {
-                    "label": primary_backend.get("label") or backend_label or "AnythingLLM",
-                    "type": primary_backend.get("type", "anythingllm"),
+                    "label": primary_backend.get("label") or backend_label or "MiniMax",
+                    "type": primary_backend.get("type", "minimax"),
                     "interface": primary_backend.get("interface"),
                     "max_tokens": 2048,
-                    "name": primary_backend.get("name", "anythingllm"),
+                    "name": primary_backend.get("name", "minimax"),
                     "model": primary_backend.get("label")
                     or primary_backend.get("name")
                     or backend_label
-                    or "anythingllm",
+                    or "minimax",
                     "timeout": getattr(planner_cfg, "execution_timeout", None)
                     if planner_cfg
                     else None,
