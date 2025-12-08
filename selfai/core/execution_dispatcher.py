@@ -172,6 +172,21 @@ class ExecutionDispatcher:
         except OSError as exc:
             raise ExecutionError(f"Plan konnte nicht aktualisiert werden: {exc}")
 
+    def _display_subtask_result(self, task_id: str, title: str, response: str) -> None:
+        """Zeigt Subtask-Ergebnis in der Konsole an."""
+        separator = "─" * 60
+        self.ui.status(f"\n{separator}", "info")
+        self.ui.status(f"📊 Subtask {task_id}: {title}", "info")
+        self.ui.status(separator, "info")
+
+        # Show first 500 chars
+        display_text = response.strip()[:500]
+        if len(response) > 500:
+            display_text += "\n... [weitere Ausgabe in Memory gespeichert]"
+
+        print(display_text)
+        self.ui.status(separator + "\n", "info")
+
     def _run_subtask(self, task: Dict[str, Any]) -> None:
         task_id = task.get("id", "?")
         agent_key = task.get("agent_key")
@@ -198,6 +213,9 @@ class ExecutionDispatcher:
             response = self._run_smolagent(task, agent, prompt, history, task_id)
         else:
             raise ExecutionError(f"Engine '{engine}' wird noch nicht unterstützt.")
+
+        # Show intermediate result in console
+        self._display_subtask_result(task_id, task.get('title', ''), response)
 
         result_path = self.memory_system.save_conversation(agent, prompt, response)
         if result_path:
