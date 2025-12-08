@@ -150,6 +150,16 @@ class PlannerMinimaxInterface:
 {tool_name_list}
                 - Verwende "engine": "minimax" für reine Text- oder Planungsaufgaben ohne Toolzugriff.
 
+                AIDER TOOL BEST PRACTICES (bei run_aider_task/run_aider_architect):
+                - Ein Task = Ein File = Eine Änderung! Für mehrere Files: mehrere parallele Subtasks erstellen
+                - Konkrete task_description mit Funktionsnamen (z.B. "Add try-except to init_db() in src/db.py")
+                - Nur 1 file im "files" Parameter! NIE mehrere Dateien kommasepariert
+                - timeout: 180s für einfache Tasks, 240s für komplexe (default 180 ist meist ok)
+                - Bevorzuge mehrere kleine parallele Aider-Tasks über einen großen komplexen Task
+                - GUTER task: "Add type hints to calculate() function" - SCHLECHTER: "Improve code quality"
+                - run_aider_task für Code-Änderungen, run_aider_architect für Design-Fragen ohne Code-Edit
+                - Bei komplexen Änderungen: NICHT Aider nutzen, sondern engine: minimax mit detaillierter Beschreibung
+
                 SelfAI Agenten:
                 {agent_overview}
 
