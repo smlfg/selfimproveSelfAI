@@ -738,7 +738,24 @@ def main():
     merge_providers: dict[str, dict[str, object]] = {}
     merge_provider_order: list[str] = []
     active_merge_provider: str | None = None
-    
+
+    ui.status("Lade LLM-Backends in Priority-Reihenfolge...", "info")
+
+    try:
+        config = load_configuration()
+        ui.status("Konfiguration geladen.", "success")
+        streaming_enabled = bool(
+            getattr(config.system, "streaming_enabled", False)
+        )
+        planner_cfg = getattr(config, "planner", None)
+        merge_cfg = getattr(config, "merge", None)
+
+        _show_system_resources(ui)
+    except (FileNotFoundError, ValueError) as exc:
+        ui.status(f"Konfiguration nicht verfügbar: {exc}", "warning")
+    except Exception as exc:
+        ui.status(f"Unerwarteter Konfigurationsfehler: {exc}", "error")
+
     # LLM Backend Loading - MiniMax als PRIMARY!
     execution_backends: list[dict[str, object]] = []
 

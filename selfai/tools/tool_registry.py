@@ -726,3 +726,14 @@ def get_tool(tool_name: str) -> RegisteredTool | None:
 def get_all_tool_schemas() -> List[Dict[str, Any]]:
     """Return the JSON schemas of all registered tools."""
     return [tool.schema for tool in _TOOL_REGISTRY.values()]
+
+
+def list_all_tools() -> List[Dict[str, str]]:
+    """Return a list of all registered tools with name and description."""
+    tools = []
+    for tool in _TOOL_REGISTRY.values():
+        tools.append({
+            "name": tool.name,
+            "description": tool.schema.get("description", "No description available")
+        })
+    return sorted(tools, key=lambda x: x["name"])

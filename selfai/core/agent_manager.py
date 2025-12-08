@@ -22,15 +22,17 @@ class Agent:
 
 
 class AgentManager:
-    def __init__(self, agents_dir: Path):
+    def __init__(self, agents_dir: Path, verbose: bool = False):
         self.agents_dir = agents_dir
+        self.verbose = verbose
         self.agents: Dict[str, Agent] = self._load_agents()
         self.active_agent: Agent | None = None
 
     def _load_agents(self) -> Dict[str, Agent]:
         agents: Dict[str, Agent] = {}
         if not self.agents_dir.is_dir():
-            print(f"Warnung: Agenten-Verzeichnis nicht gefunden: {self.agents_dir}")
+            if self.verbose:
+                print(f"Warnung: Agenten-Verzeichnis nicht gefunden: {self.agents_dir}")
             return agents
 
         # 1. Neue Verzeichnis-basierte Struktur
@@ -42,7 +44,8 @@ class AgentManager:
 
             config_path = folder / "config.yaml"
             if not config_path.is_file():
-                print(f"⚠️  Überspringe {folder.name}: config.yaml fehlt.")
+                if self.verbose:
+                    print(f"⚠️  Überspringe {folder.name}: config.yaml fehlt.")
                 continue
 
             try:
@@ -50,7 +53,8 @@ class AgentManager:
                     data = yaml.safe_load(f) or {}
                 agent_cfg = data.get("agent", {})
             except (yaml.YAMLError, OSError) as exc:
-                print(f"⚠️  Fehler beim Laden von {config_path}: {exc}")
+                if self.verbose:
+                    print(f"⚠️  Fehler beim Laden von {config_path}: {exc}")
                 continue
 
             required = [
@@ -62,18 +66,21 @@ class AgentManager:
                 "system_prompt_file",
             ]
             if not all(field in agent_cfg for field in required):
-                print(f"⚠️  In {config_path} fehlen Pflichtfelder.")
+                if self.verbose:
+                    print(f"⚠️  In {config_path} fehlen Pflichtfelder.")
                 continue
 
             prompt_path = folder / agent_cfg["system_prompt_file"]
             if not prompt_path.is_file():
-                print(f"⚠️  System-Prompt-Datei fehlt: {prompt_path}")
+                if self.verbose:
+                    print(f"⚠️  System-Prompt-Datei fehlt: {prompt_path}")
                 continue
 
             try:
                 system_prompt = prompt_path.read_text(encoding="utf-8").strip()
             except OSError as exc:
-                print(f"⚠️  System-Prompt konnte nicht gelesen werden ({prompt_path}): {exc}")
+                if self.verbose:
+                    print(f"⚠️  System-Prompt konnte nicht gelesen werden ({prompt_path}): {exc}")
                 continue
 
             key = agent_cfg["name"].lower()
@@ -101,7 +108,8 @@ class AgentManager:
                     data = yaml.safe_load(f) or {}
                 agent_cfg = data.get("agent", {})
             except (yaml.YAMLError, OSError) as exc:
-                print(f"⚠️  Fehler beim Laden von {file_path}: {exc}")
+                if self.verbose:
+                    print(f"⚠️  Fehler beim Laden von {file_path}: {exc}")
                 continue
 
             required_legacy = [
@@ -131,6 +139,23 @@ class AgentManager:
                 path=file_path.parent,
             )
             agents[key] = agent
+
+        # Fallback: Default Agent wenn keine gefunden
+        if not agents:
+            if self.verbose:
+                print("ℹ️  Keine Agents gefunden - erstelle Default Agent")
+            default_agent = Agent(
+                key="default",
+                display_name="MiniMax Chat",
+                workspace_slug="main",
+                system_prompt="Du bist ein hilfreicher Assistent.",
+                memory_categories=["general"],
+                color="cyan",
+                description="Standard Chat mit MiniMax API",
+                tags=["default"],
+                path=self.agents_dir
+            )
+            agents["default"] = default_agent
 
         return dict(sorted(agents.items(), key=lambda item: item[1].display_name.lower()))
 

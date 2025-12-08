@@ -195,3 +195,35 @@ class TerminalUI:
                 if 0 <= chosen < len(options):
                     return chosen
             print(self.colorize("Ungültige Auswahl. Bitte erneut versuchen.", "red"))
+
+    def show_available_tools(self, tools: list[dict]) -> None:
+        """Zeigt verfügbare Tools in einer übersichtlichen Liste an."""
+        if not tools:
+            return
+
+        print(self.colorize("\n📦 Verfügbare Tools:", "bold"))
+        print(self.colorize("─" * 60, "cyan"))
+
+        # Kategorisiere Tools
+        aider_tools = [t for t in tools if "aider" in t["name"].lower()]
+        calendar_tools = [t for t in tools if "calendar" in t["name"].lower()]
+        project_tools = [t for t in tools if "project" in t["name"].lower()]
+        other_tools = [t for t in tools if t not in aider_tools + calendar_tools + project_tools]
+
+        def print_tool_category(category_name: str, tool_list: list[dict]) -> None:
+            if not tool_list:
+                return
+            print(f"\n  {self.colorize(category_name, 'magenta')}:")
+            for tool in tool_list:
+                name_colored = self.colorize(tool["name"], "cyan")
+                desc = tool["description"][:80] + "..." if len(tool["description"]) > 80 else tool["description"]
+                print(f"    • {name_colored}")
+                print(f"      {desc}")
+
+        print_tool_category("🤖 AI Coding Assistant", aider_tools)
+        print_tool_category("📅 Calendar & Events", calendar_tools)
+        print_tool_category("📁 Project Management", project_tools)
+        print_tool_category("🔧 Other Tools", other_tools)
+
+        print(self.colorize("\n" + "─" * 60, "cyan"))
+        print(self.colorize(f"  Gesamt: {len(tools)} Tools verfügbar\n", "green"))
