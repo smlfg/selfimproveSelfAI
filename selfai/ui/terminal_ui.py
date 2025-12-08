@@ -6,6 +6,9 @@ import time
 from itertools import cycle
 from typing import Optional
 
+# Terminal UI Module - Rich terminal interface for SelfAI
+# Last updated: 2025-12-08
+
 
 class TerminalUI:
     """Einfache Terminal-UI mit Farben, Banner und Spinner."""
