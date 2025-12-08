@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import textwrap
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable
@@ -256,41 +257,104 @@ class PlannerMinimaxInterface:
     ) -> Dict[str, Any]:
         context = context or PlannerContext(agents=[], memory_summary="")
 
-        cleaned = self._strip_code_fences(raw_response)
-        if "END_OF_PLAN" in cleaned:
-            cleaned = cleaned.split("END_OF_PLAN", 1)[0].strip()
+        # 1. Strip <think> tags
+        cleaned = re.sub(r'<think>.*?</think>', '', raw_response, flags=re.DOTALL)
+        cleaned = cleaned.strip()
+
+        # 2. Try JSON parsing first
         try:
+            # Strip code fences
+            cleaned = self._strip_code_fences(cleaned)
+            
+            # Check if we still have a plan structure
+            if "END_OF_PLAN" in cleaned:
+                cleaned = cleaned.split("END_OF_PLAN", 1)[0].strip()
+            
+            # Try to parse JSON
             plan_data = json.loads(cleaned)
-        except json.JSONDecodeError as exc:
-            done_reason = None
-            if body_extra:
-                done_reason = body_extra.get("finish_reason")
-            hint = f" Finish-Reason: {done_reason}" if done_reason else ""
-            raise PlannerError(
-                f"Planner-Ausgabe ist kein gültiges JSON.{hint} Rohantwort: {cleaned[:300]}"
-            ) from exc
-
-        allowed_agents = {agent.get("key") for agent in context.agents if agent.get("key")}
-        default_agent = next(iter(allowed_agents), "code_helfer")
-        for task in plan_data.get("subtasks", []) or []:
-            if not isinstance(task.get("agent_key"), str) or not task.get("agent_key"):
-                task["agent_key"] = default_agent
-            try:
-                pg_value = int(task.get("parallel_group", 1))
-                if pg_value < 1:
+            
+            # Validate the JSON structure
+            allowed_agents = {agent.get("key") for agent in context.agents if agent.get("key")}
+            default_agent = next(iter(allowed_agents), "code_helfer")
+            
+            for task in plan_data.get("subtasks", []) or []:
+                if not isinstance(task.get("agent_key"), str) or not task.get("agent_key"):
+                    task["agent_key"] = default_agent
+                try:
+                    pg_value = int(task.get("parallel_group", 1))
+                    if pg_value < 1:
+                        task["parallel_group"] = 1
+                except (TypeError, ValueError):
                     task["parallel_group"] = 1
-            except (TypeError, ValueError):
-                task["parallel_group"] = 1
-            if not isinstance(task.get("notes"), str):
-                task["notes"] = ""
-        try:
-            validate_plan_structure(
-                plan_data,
-                allowed_agent_keys=allowed_agents,
-                allowed_engines=DEFAULT_ENGINES,
-            )
-        except PlanValidationError as exc:
-            setattr(exc, "plan_data", plan_data)
-            raise PlannerError(f"Planvalidierung fehlgeschlagen: {exc}") from exc
+                if not isinstance(task.get("notes"), str):
+                    task["notes"] = ""
+            
+            try:
+                validate_plan_structure(
+                    plan_data,
+                    allowed_agent_keys=allowed_agents,
+                    allowed_engines=DEFAULT_ENGINES,
+                )
+            except PlanValidationError as exc:
+                # If validation fails, try fallback plan
+                pass
+            else:
+                # JSON parsing and validation successful
+                return plan_data
+                
+        except (json.JSONDecodeError, PlanValidationError, Exception):
+            # JSON parsing failed, will try fallback
+            pass
 
-        return plan_data
+        # 3. FALLBACK: Create simple plan from response text
+        goal = "Unbekanntes Ziel"
+        if hasattr(context, 'memory_summary') and context.memory_summary:
+            goal = context.memory_summary[:100] + "..." if len(context.memory_summary) > 100 else context.memory_summary
+        
+        # Extract potential information from the cleaned response
+        response_text = cleaned[:500] if cleaned else "Keine Antwort verfügbar"
+        
+        # Create fallback plan
+        fallback_plan = {
+            "subtasks": [
+                {
+                    "id": "S1",
+                    "title": "Anforderungen analysieren",
+                    "objective": f"Analysiere die Anforderung: {goal}",
+                    "agent_key": "code_helfer",
+                    "engine": "minimax",
+                    "parallel_group": 1,
+                    "depends_on": [],
+                    "notes": f"Analysiere Eingabe: {response_text[:100]}"
+                },
+                {
+                    "id": "S2",
+                    "title": "Lösung erarbeiten",
+                    "objective": f"Erarbeite eine Lösung für: {goal}",
+                    "agent_key": "code_helfer",
+                    "engine": "minimax",
+                    "parallel_group": 2,
+                    "depends_on": ["S1"],
+                    "notes": f"Basierend auf Analyse: {response_text[:100]}"
+                }
+            ],
+            "merge": {
+                "strategy": "Kombiniere Analyse und Lösung",
+                "steps": [
+                    {
+                        "title": "Finale Antwort",
+                        "description": "Zusammenführen aller Ergebnisse",
+                        "depends_on": ["S2"]
+                    }
+                ]
+            },
+            "metadata": {
+                "planner_provider": "minimax-planner",
+                "planner_model": self.model,
+                "goal": goal,
+                "fallback": True,
+                "reason": "JSON-Parsing fehlgeschlagen, Fallback-Plan erstellt"
+            }
+        }
+        
+        return fallback_plan
