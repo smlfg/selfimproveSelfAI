@@ -13,6 +13,8 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     SmolTool = None  # type: ignore
 
+from selfai.tools.aider_tool import run_aider_task, run_aider_architect
+
 
 @dataclass
 class RegisteredTool:
@@ -642,6 +644,71 @@ register_tool(
                     },
                 },
                 "required": ["origin", "destination"],
+            },
+        },
+        output_type="string",
+    )
+)
+# --- Aider AI Coding Assistant Tools ---
+
+register_tool(
+    RegisteredTool(
+        name="run_aider_task",
+        func=run_aider_task,
+        schema={
+            "name": "run_aider_task",
+            "description": "Execute an AI-powered coding task using Aider with MiniMax. Can edit files, add features, fix bugs, refactor code, etc.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_description": {
+                        "type": "string",
+                        "description": "Detailed description of the coding task (e.g., 'Add error handling to parse_config function in src/config.py')",
+                    },
+                    "files": {
+                        "type": "string",
+                        "description": "Comma-separated list of file paths to edit (e.g., 'src/main.py,tests/test_main.py'). Leave empty for Aider to decide.",
+                    },
+                    "model": {
+                        "type": "string",
+                        "description": "LLM model to use (default: openai/MiniMax-M2)",
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Maximum execution time in seconds (default: 180)",
+                    },
+                },
+                "required": ["task_description"],
+            },
+        },
+        output_type="string",
+    )
+)
+
+register_tool(
+    RegisteredTool(
+        name="run_aider_architect",
+        func=run_aider_architect,
+        schema={
+            "name": "run_aider_architect",
+            "description": "Consult Aider in architect mode for code design advice (read-only, no file edits). Get recommendations on architecture, design patterns, best practices.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "design_question": {
+                        "type": "string",
+                        "description": "Architectural question or design problem (e.g., 'How should I structure a REST API with authentication?')",
+                    },
+                    "context_files": {
+                        "type": "string",
+                        "description": "Comma-separated list of files for context (optional, e.g., 'src/api.py,src/models.py')",
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Maximum execution time in seconds (default: 120)",
+                    },
+                },
+                "required": ["design_question"],
             },
         },
         output_type="string",
