@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import time
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
 
@@ -74,26 +76,66 @@ class ExecutionDispatcher:
             raise ExecutionError(f"Plan-Datei enthält ungültiges JSON: {exc}")
 
     def run(self) -> None:
-        """Führt alle Subtasks nacheinander aus."""
+        """Führt Subtasks parallel nach parallel_group aus."""
 
         self.ui.status(
             f"Ausführungsphase gestartet ({len(self.subtasks)} Subtasks).",
             "info",
         )
-
         self._ensure_status_fields()
+
+        # Group tasks by parallel_group
+        groups = defaultdict(list)
+        for task in self.subtasks:
+            pg = task.get("parallel_group", 1)
+            groups[pg].append(task)
+
+        # Execute groups sequentially
         try:
-            for task in self.subtasks:
-                task_id = task.get("id") or "?"
-                try:
+            for group_num in sorted(groups.keys()):
+                tasks_in_group = groups[group_num]
+
+                # Check depends_on before starting group
+                for task in tasks_in_group:
+                    deps = task.get("depends_on", [])
+                    for dep_id in deps:
+                        if self._get_task_status(dep_id) != "completed":
+                            raise ExecutionError(f"Dependency {dep_id} not completed")
+
+                # Execute group in parallel
+                if len(tasks_in_group) == 1:
+                    # Single task - no threading overhead
+                    task = tasks_in_group[0]
+                    task_id = task.get("id") or "?"
+                    self.ui.status(f"Task {task_id}: {task.get('title', '')}", "info")
                     self._update_task_status(task_id, "running", None)
                     self._run_subtask(task)
                     self._update_task_status(task_id, "completed", None)
-                except ExecutionError as exc:
-                    self._update_task_status(task_id, "failed", str(exc))
-                    self.ui.status(f"Subtask {task_id} fehlgeschlagen: {exc}", "error")
-                    self.ui.status("Ausführungsphase abgebrochen.", "error")
-                    raise
+                else:
+                    # Multiple tasks - parallel execution
+                    self.ui.status(f"⚡ Parallel Group {group_num}: {len(tasks_in_group)} Tasks gleichzeitig...", "info")
+
+                    with ThreadPoolExecutor(max_workers=len(tasks_in_group)) as executor:
+                        futures = {}
+                        for task in tasks_in_group:
+                            task_id = task.get("id") or "?"
+                            self._update_task_status(task_id, "running", None)
+                            future = executor.submit(self._run_subtask, task)
+                            futures[future] = task_id
+
+                        # Wait for completion
+                        for future in as_completed(futures):
+                            task_id = futures[future]
+                            try:
+                                future.result()
+                                self._update_task_status(task_id, "completed", None)
+                                self.ui.status(f"✓ Task {task_id} abgeschlossen", "success")
+                            except Exception as exc:
+                                self._update_task_status(task_id, "failed", str(exc))
+                                self.ui.status(f"✗ Task {task_id} fehlgeschlagen: {exc}", "error")
+                                # Cancel remaining tasks
+                                executor.shutdown(wait=False, cancel_futures=True)
+                                raise ExecutionError(f"Parallel task {task_id} failed: {exc}")
         finally:
             self._save_plan()
 
@@ -113,6 +155,13 @@ class ExecutionDispatcher:
                 task["error"] = error
                 break
         self._save_plan()
+
+    def _get_task_status(self, task_id: str) -> str | None:
+        """Get status of a task by ID."""
+        for task in self.subtasks:
+            if task.get("id") == task_id:
+                return task.get("status")
+        return None
 
     def _save_plan(self) -> None:
         try:
