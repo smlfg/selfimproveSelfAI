@@ -207,7 +207,8 @@ class ExecutionDispatcher:
 
         self.ui.status(f"Subtask {task_id} starten ({task.get('title', objective)})", "info")
 
-        if engine == "anythingllm":
+        # LLM-basierte Engines (nutzen alle _invoke_llm mit verfügbaren Backends)
+        if engine in ("minimax", "anythingllm", "qnn", "cpu"):
             response = self._invoke_llm(agent, prompt, history, task_id)
         elif engine == "smolagent":
             response = self._run_smolagent(task, agent, prompt, history, task_id)
