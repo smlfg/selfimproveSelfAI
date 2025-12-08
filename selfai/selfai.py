@@ -437,19 +437,37 @@ def _execute_merge_phase(
     )
 
     combined_outputs = "\n\n".join(outputs)
+
+    # Get original goal from plan metadata
+    original_goal = plan_data.get("metadata", {}).get("goal", "Unbekanntes Ziel")
+
     final_prompt = (
-        "Du bist der Projektmanager. Die folgenden Subtasks wurden ausgeführt:\n\n"
+        "Du bist ein Experte für Ergebnis-Synthese im DPPM-System.\n\n"
+        f"URSPRÜNGLICHES ZIEL:\n{original_goal}\n\n"
+        "AUSGEFÜHRTE SUBTASKS:\n"
         f"{combined_outputs}\n\n"
-        "AUFGABE: Synthetisiere die Ergebnisse in eine KOHÄRENTE Antwort, die:\n"
-        "1. Redundanz entfernt (nicht einfach alles wiederholen)\n"
-        "2. Widersprüche identifiziert\n"
-        "3. Eine klare Empfehlung oder Zusammenfassung gibt\n\n"
-        "Wenn alle Subtasks dasselbe sagen, fasse es in EINEM Satz zusammen.\n"
+        "DEINE AUFGABE:\n"
+        "Synthetisiere die Subtask-Ergebnisse zu einer KOHÄRENTEN Gesamt-Antwort, die das ursprüngliche Ziel beantwortet.\n\n"
+        "ANFORDERUNGEN:\n"
+        "1. FOKUS: Beantworte das ursprüngliche Ziel direkt und vollständig\n"
+        "2. SYNTHESE: Kombiniere Ergebnisse intelligent (nicht einfach copy-paste)\n"
+        "3. REDUNDANZ: Wenn mehrere Subtasks dasselbe sagen, erwähne es NUR EINMAL\n"
+        "4. WIDERSPRÜCHE: Identifiziere und löse Widersprüche zwischen Subtasks\n"
+        "5. STRUKTUR: Gib eine klare, gut strukturierte Antwort (mit Überschriften wenn sinnvoll)\n"
+        "6. VOLLSTÄNDIGKEIT: Stelle sicher, dass ALLE relevanten Informationen aus den Subtasks enthalten sind\n"
+        "7. PRÄGNANZ: Halte die Antwort so kurz wie möglich, aber so ausführlich wie nötig\n\n"
+        "AUSGABE-FORMAT:\n"
+        "- Beginne mit einer kurzen Executive Summary (1-2 Sätze)\n"
+        "- Dann detaillierte Antwort mit Abschnitten\n"
+        "- Verwende Markdown-Formatierung (## für Überschriften, - für Listen)\n"
+        "- Bei Code: Zeige integrierten, lauffähigen Code (nicht separate Snippets)\n\n"
     )
     if strategy:
-        final_prompt += f"\nStrategie (vom Planner vorgeschlagen): {strategy}\n"
+        final_prompt += f"MERGE-STRATEGIE (vom Planner):\n{strategy}\n\n"
     if steps_text:
-        final_prompt += f"Vorgeschlagene Schritte (vom Planner):\n{steps_text}\n"
+        final_prompt += f"VORGESCHLAGENE SCHRITTE:\n{steps_text}\n"
+
+    final_prompt += "\nERSTELLE JETZT DIE FINALE ANTWORT:"
 
     history = memory_system.load_relevant_context(
         merge_agent,
