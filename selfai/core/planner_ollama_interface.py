@@ -94,7 +94,7 @@ class PlannerOllamaInterface:
                       "title": "kurzer Titel",
                       "objective": "prägnante Zielbeschreibung (max. 160 Zeichen)",
                       "agent_key": "code_helfer",
-                      "engine": "anythingllm",
+                      "engine": "minimax",
                       "parallel_group": 1,
                       "depends_on": [],
                       "notes": "optionale Hinweise (max. 160 Zeichen)"
@@ -113,27 +113,56 @@ class PlannerOllamaInterface:
                 }}
 
                 DPPM-Vorgaben:
-                1. Decompose – zerlege die Aufgabe in maximal fünf unabhängige Subtasks.
+                1. Decompose – zerlege die Aufgabe in so viele Subtasks wie nötig für optimale Parallelisierung.
                 2. Parallel Plan – weise parallele Arbeiten über "parallel_group" zu und nutze "depends_on" nur für echte Abhängigkeiten.
                 3. Merge – definiere eine konsistente Zusammenführung des globalen Plans.
+
+                PARALLELISIERUNG (WICHTIG für Geschwindigkeit):
+                - parallel_group: Niedrigere Zahlen = früher starten
+                - Gleiche parallel_group = Tasks laufen GLEICHZEITIG (2-3x schneller!)
+                - Beispiel paralleler Plan:
+                  {{
+                    "subtasks": [
+                      {{"id": "S1", "parallel_group": 1, "depends_on": []}},  // Läuft solo
+                      {{"id": "S2", "parallel_group": 2, "depends_on": ["S1"]}},  // }
+                      {{"id": "S3", "parallel_group": 2, "depends_on": ["S1"]}},  // } Parallel!
+                      {{"id": "S4", "parallel_group": 2, "depends_on": ["S1"]}},  // }
+                      {{"id": "S5", "parallel_group": 3, "depends_on": ["S2", "S3", "S4"]}}  // Merge
+                    ]
+                  }}
+                - OPTIMIERE für Parallelität: Zerlege Aufgaben so, dass viele parallel laufen können!
+                - Nutze depends_on NUR für echte Abhängigkeiten
+
+                BESTE PRAKTIKEN für Task-Dekomposition:
+                - Zerlege in UNABHÄNGIGE Subtasks (für Parallelisierung)
+                - Jeder Subtask sollte in 1-2 Minuten erledigt sein
+                - Bei Listen/Mehrfach-Items: Erstelle parallele Subtasks (z.B. "Test Feature A", "Test Feature B")
+                - Vermeide monolithische Subtasks ("Implementiere alles")
+                - Nutze frühe parallel_groups für schnelles Feedback
+
+                MERGE-STRATEGIE:
+                - Beschreibe WIE die Ergebnisse kombiniert werden (nicht nur "kombiniere")
+                - Beispiele: "Aggregiere Test-Ergebnisse zu Gesamt-Report", "Vereinige Code-Module zu Gesamtlösung"
+                - Merge sollte auf ALLEN Subtask-Ergebnissen basieren
 
                 Regeln:
                 - Gib ausschließlich reines JSON zurück, ohne Markdown, Backticks oder Text vor/nach dem JSON.
                 - Jeder String muss eine Zeile bleiben und <= 160 Zeichen haben.
                 - Verwende als "agent_key" nur die geladenen Agenten.
-                - Verwende als "engine" nur: "anythingllm", "qnn", "cpu", "smolagent".
-                - Trage mindestens zwei Subtasks ein, wenn möglich; maximal fünf.
+                - Verwende als "engine" primär: "minimax" (für LLM-Tasks), "smolagent" (für Tool-Tasks)
+                - Legacy-Optionen: "anythingllm", "qnn", "cpu" (nur falls nötig)
+                - Erstelle so viele Subtasks wie sinnvoll (typisch 2-8, bei komplexen Aufgaben auch mehr)
+                - Bei Aufgaben mit vielen unabhängigen Teilen: Nutze Parallelisierung statt Sequenz!
                 - Liefere die finale JSON ausschließlich in der Antwort-Ausgabe (nicht im Thinking-Bereich).
                 - Analysiere die Anforderung präzise. Wenn explizite Detailanweisungen (z. B. "letter for letter", "Schritt für Schritt", "einzeln") vorkommen, bilde Subtasks, die diese Vorgaben exakt widerspiegeln.
                 - Jeder Subtask muss einen eigenen Mehrwert liefern; vermeide redundante oder identische Ziele.
-                - Die Merge-Strategie muss beschreiben, wie die Ergebnisse zusammengeführt werden (nicht nur "kombiniere alle Outputs").
                 - Beende die Ausgabe direkt nach dem JSON mit der Zeichenkette END_OF_PLAN.
                 - Wenn die Anforderung mehrdeutig ist, erstelle zuerst einen Klärungs-Subtask (z. B. "Anforderung klären") mit einem passenden Agenten und notiere offene Fragen oder Annahmen.
                 - Stelle sicher, dass Subtasks, die auf den Ergebnissen vorangehender Schritte basieren, die entsprechenden IDs in "depends_on" aufführen.
                 - Wenn ein Subtask externe Informationen beschaffen, recherchieren, Dateien lesen oder Berechnungen mit Tools durchführen soll, setze "engine" auf "smolagent".
                 - Für Subtasks mit "engine": "smolagent" füge das Feld "tools": ["tool_name"] hinzu und nutze ausschließlich folgende Tool-Namen (keine anderen erfinden):
 {tool_name_list}
-                - Verwende "engine": "anythingllm" nur für reine Text- oder Planungsaufgaben ohne Toolzugriff.
+                - Verwende "engine": "minimax" für reine Text- oder Planungsaufgaben ohne Toolzugriff.
 
                 SelfAI Agenten:
                 {agent_overview}
@@ -146,6 +175,76 @@ class PlannerOllamaInterface:
 
                 Ziel:
                 {goal}
+
+            BEISPIEL-PLAN (parallele Web-Crawler Entwicklung):
+            {{
+              "subtasks": [
+                {{
+                  "id": "S1",
+                  "title": "Requirements analysieren",
+                  "objective": "Liste alle technischen Anforderungen für den Crawler",
+                  "agent_key": "code_helfer",
+                  "engine": "minimax",
+                  "parallel_group": 1,
+                  "depends_on": [],
+                  "notes": "Definiere: Ziel-Websites, Datenformat, Rate-Limits"
+                }},
+                {{
+                  "id": "S2",
+                  "title": "HTTP Client entwickeln",
+                  "objective": "Implementiere robuste HTTP-Anfragen mit Error-Handling",
+                  "agent_key": "code_helfer",
+                  "engine": "minimax",
+                  "parallel_group": 2,
+                  "depends_on": ["S1"]
+                }},
+                {{
+                  "id": "S3",
+                  "title": "HTML Parser entwickeln",
+                  "objective": "Implementiere BeautifulSoup Parser für News-Extraktion",
+                  "agent_key": "code_helfer",
+                  "engine": "minimax",
+                  "parallel_group": 2,
+                  "depends_on": ["S1"]
+                }},
+                {{
+                  "id": "S4",
+                  "title": "Storage Layer entwickeln",
+                  "objective": "Implementiere JSON/CSV Export-Funktionalität",
+                  "agent_key": "code_helfer",
+                  "engine": "minimax",
+                  "parallel_group": 2,
+                  "depends_on": ["S1"]
+                }},
+                {{
+                  "id": "S5",
+                  "title": "Integration & Tests",
+                  "objective": "Kombiniere Module und teste End-to-End",
+                  "agent_key": "code_helfer",
+                  "engine": "minimax",
+                  "parallel_group": 3,
+                  "depends_on": ["S2", "S3", "S4"],
+                  "notes": "Teste mit realen Websites"
+                }}
+              ],
+              "merge": {{
+                "strategy": "Kombiniere HTTP Client, Parser und Storage zu vollständigem Crawler mit Tests",
+                "steps": [
+                  {{
+                    "title": "Code-Integration",
+                    "description": "Vereinige S2, S3, S4 Module in main.py",
+                    "depends_on": ["S5"]
+                  }},
+                  {{
+                    "title": "Dokumentation",
+                    "description": "Erstelle README mit Usage-Beispielen und API-Docs",
+                    "depends_on": ["S5"]
+                  }}
+                ]
+              }}
+            }}
+
+            Beachte: S2, S3, S4 laufen PARALLEL (parallel_group: 2) → 3x schneller als sequentiell!
             """
         ).strip()
 

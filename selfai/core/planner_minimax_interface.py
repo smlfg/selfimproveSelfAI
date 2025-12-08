@@ -96,7 +96,7 @@ class PlannerMinimaxInterface:
                       "title": "kurzer Titel",
                       "objective": "prägnante Zielbeschreibung (max. 160 Zeichen)",
                       "agent_key": "code_helfer",
-                      "engine": "anythingllm",
+                      "engine": "minimax",
                       "parallel_group": 1,
                       "depends_on": [],
                       "notes": "optionale Hinweise (max. 160 Zeichen)"
@@ -115,16 +115,29 @@ class PlannerMinimaxInterface:
                 }}
 
                 DPPM-Vorgaben:
-                1. Decompose – zerlege die Aufgabe in maximal fünf unabhängige Subtasks.
+                1. Decompose – zerlege die Aufgabe in unabhängige Subtasks (typisch 2-8, bei komplexen Aufgaben auch mehr).
                 2. Parallel Plan – weise parallele Arbeiten über "parallel_group" zu und nutze "depends_on" nur für echte Abhängigkeiten.
                 3. Merge – definiere eine konsistente Zusammenführung des globalen Plans.
+
+                PARALLELISIERUNG (WICHTIG für Geschwindigkeit):
+                - parallel_group: Niedrigere Zahlen = früher starten
+                - Gleiche parallel_group = Tasks laufen GLEICHZEITIG (2-3x schneller!)
+                - Beispiel: S1 (group 1), S2+S3+S4 (group 2, parallel!), S5 (group 3, merge)
+                - OPTIMIERE für Parallelität: Zerlege so, dass viele Tasks parallel laufen!
+                - Nutze depends_on NUR für echte Abhängigkeiten
+
+                BESTE PRAKTIKEN für Task-Dekomposition:
+                - Zerlege in UNABHÄNGIGE Subtasks (für Parallelisierung)
+                - Jeder Subtask sollte in 1-2 Minuten erledigt sein
+                - Bei Listen/Mehrfach-Items: Erstelle parallele Subtasks ("Test Feature A", "Test Feature B")
+                - Vermeide monolithische Subtasks ("Implementiere alles")
+                - Nutze frühe parallel_groups für schnelles Feedback
 
                 Regeln:
                 - Gib ausschließlich reines JSON zurück, ohne Markdown, Backticks oder Text vor/nach dem JSON.
                 - Jeder String muss eine Zeile bleiben und <= 160 Zeichen haben.
                 - Verwende als "agent_key" nur die geladenen Agenten.
-                - Verwende als "engine" nur: "anythingllm", "qnn", "cpu", "smolagent".
-                - Trage mindestens zwei Subtasks ein, wenn möglich; maximal fünf.
+                - Verwende als "engine" primär: "minimax" (für LLM-Tasks), "smolagent" (für Tool-Tasks). Legacy: "anythingllm", "qnn", "cpu".
                 - Liefere die finale JSON ausschließlich in der Antwort-Ausgabe (nicht im Thinking-Bereich).
                 - Analysiere die Anforderung präzise. Wenn explizite Detailanweisungen (z. B. "letter for letter", "Schritt für Schritt", "einzeln") vorkommen, bilde Subtasks, die diese Vorgaben exakt widerspiegeln.
                 - Jeder Subtask muss einen eigenen Mehrwert liefern; vermeide redundante oder identische Ziele.
@@ -135,7 +148,7 @@ class PlannerMinimaxInterface:
                 - Wenn ein Subtask externe Informationen beschaffen, recherchieren, Dateien lesen oder Berechnungen mit Tools durchführen soll, setze "engine" auf "smolagent".
                 - Für Subtasks mit "engine": "smolagent" füge das Feld "tools": ["tool_name"] hinzu und nutze ausschließlich folgende Tool-Namen (keine anderen erfinden):
 {tool_name_list}
-                - Verwende "engine": "anythingllm" nur für reine Text- oder Planungsaufgaben ohne Toolzugriff.
+                - Verwende "engine": "minimax" für reine Text- oder Planungsaufgaben ohne Toolzugriff.
 
                 SelfAI Agenten:
                 {agent_overview}
