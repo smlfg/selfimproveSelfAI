@@ -12,6 +12,21 @@ from selfai.core.context_filter import (
     extract_tags,
 )
 
+def sanitize_goal_for_filename(goal: str, max_length: int = 50) -> str:
+    """Sanitisiert und kürzt einen Goal-String für die Verwendung in Dateinamen."""
+    # Entferne ungültige Zeichen (nur alphanumerische, Leerzeichen, Bindestriche und Unterstriche behalten)
+    sanitized = re.sub(r'[^\w\s-]', '', goal)
+    # Ersetze Whitespaces mit Bindestrichen
+    sanitized = re.sub(r'\s+', '-', sanitized)
+    # Kürze auf max_length Zeichen
+    if len(sanitized) > max_length:
+        sanitized = sanitized[:max_length]
+    # Entferne führende und nachfolgende Bindestriche
+    sanitized = sanitized.strip('-')
+    # Fallback falls der String leer wurde
+    return sanitized or "plan"
+
+
 class MemorySystem:
     """Verwaltet das Speichern und Laden von Konversationen."""
     def __init__(self, memory_dir: Path):
@@ -81,7 +96,8 @@ class MemorySystem:
         """Speichert einen Planner-Plan als JSON-Datei und gibt den Pfad zurück."""
 
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        goal_slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", goal.strip()).strip("-") or "plan"
+        # FIX: Sanitize und kürze goal auf max. 50 Zeichen für Dateinamen-Limit
+        goal_slug = sanitize_goal_for_filename(goal, max_length=50)
         filename = f"{timestamp}_{goal_slug}.json"
         filepath = self.plan_dir / filename
 
