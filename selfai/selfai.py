@@ -30,6 +30,7 @@ from selfai.core.planner_validator import (
 from selfai.core.merge_ollama_interface import MergeOllamaInterface
 from selfai.core.planner_minimax_interface import PlannerMinimaxInterface
 from selfai.core.merge_minimax_interface import MergeMinimaxInterface  # Falls erstellt
+from selfai.core.tool_calling_ollama_interface import ToolCallingOllamaInterface
 from selfai.ui.terminal_ui import TerminalUI
 
 PLANNER_STATE_FILENAME = "planner_state.json"
@@ -712,7 +713,7 @@ def main():
     _show_pipeline_overview(ui)
 
     agents_path = project_root / "agents"
-    agent_manager = AgentManager(agents_dir=agents_path)
+    agent_manager = AgentManager(agents_dir=agents_path, verbose=False)
 
     memory_path = project_root / "memory"
     memory_system = MemorySystem(memory_dir=memory_path)
@@ -738,33 +739,6 @@ def main():
     merge_provider_order: list[str] = []
     active_merge_provider: str | None = None
     
-    ui.status("Lade LLM-Backends in Priority-Reihenfolge...", "info")
-    
-    try:
-        config = load_configuration()
-        ui.status("Konfiguration geladen.", "success")
-        streaming_enabled = bool(
-            getattr(config.system, "streaming_enabled", False)
-        )
-        planner_cfg = getattr(config, "planner", None)
-        merge_cfg = getattr(config, "merge", None)
-        if planner_cfg and planner_cfg.enabled:
-            provider_list = ", ".join(
-                provider.name for provider in planner_cfg.providers
-            ) or "(keine Provider)"
-            ui.status(
-                f"Planner aktiviert. Provider: {provider_list}",
-                "info",
-            )
-        else:
-            ui.status("Ollama-Planner deaktiviert.", "info")
-
-        _show_system_resources(ui)
-    except (FileNotFoundError, ValueError) as exc:
-        ui.status(f"Konfiguration nicht verfügbar: {exc}", "warning")
-    except Exception as exc:
-        ui.status(f"Unerwarteter Konfigurationsfehler: {exc}", "error")
-
     # LLM Backend Loading - MiniMax als PRIMARY!
     execution_backends: list[dict[str, object]] = []
 
@@ -782,7 +756,6 @@ def main():
             )
 
     # 2. QNN (Lokal - Secondary)
-    ui.status("Prüfe lokale QNN-Backends...", "info")
     interface_qnn, label_qnn = _load_qnn(models_root, ui)
     if interface_qnn:
         execution_backends.append(
@@ -795,7 +768,6 @@ def main():
         )
 
     # 3. CPU (Lokal - Tertiary)
-    ui.status("Prüfe CPU-Backends...", "info")
     interface_cpu, label_cpu = _load_cpu(models_root, ui)
     if interface_cpu:
         execution_backends.append(
@@ -822,6 +794,11 @@ def main():
     ui.status(f"Primäres LLM-Backend: {backend_label}", "success")
     backend_names = [backend["name"] for backend in execution_backends]
     ui.status(f"Verfügbare Backends: {', '.join(backend_names)}", "info")
+
+    # Load tools
+    from selfai.tools.tool_registry import list_all_tools
+    available_tools = list_all_tools()
+    ui.show_available_tools(available_tools)
 
     # FIX: Planner Provider Loading mit korrekten Headers und Type-based Selection
     if planner_cfg and planner_cfg.enabled:
