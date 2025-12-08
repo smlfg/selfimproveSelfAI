@@ -347,6 +347,7 @@ def _select_merge_agent_from_plan(
     merge_cfg: dict[str, object],
     agent_manager: AgentManager,
 ) -> Agent | None:
+    # 1. Verwende Agent aus Plan (falls spezifiziert)
     merge_agent_key = None
     if isinstance(merge_cfg, dict):
         merge_agent_key = merge_cfg.get("agent_key")
@@ -356,10 +357,17 @@ def _select_merge_agent_from_plan(
         if agent:
             return agent
 
+    # 2. Bevorzuge spezialisierter Synthesis Expert (NEU!)
+    agent = agent_manager.get("synthesis_expert")
+    if agent:
+        return agent
+
+    # 3. Fallback: Projektmanager
     agent = agent_manager.get("projektmanager")
     if agent:
         return agent
 
+    # 4. Letzter Fallback: Aktiver Agent
     return agent_manager.active_agent
 
 

@@ -1,0 +1,14 @@
+agent:
+  name: "synthesis_expert"
+  display_name: "Synthesis Expert"
+  workspace_slug: "synthesis"
+  memory_categories:
+    - "dppm_merge"
+    - "synthesis"
+  color: "purple"
+  system_prompt_file: "system_prompt.md"
+  description: "Spezialisiert auf intelligente Synthese und Zusammenführung von DPPM-Subtask-Ergebnissen zu kohärenten Gesamt-Antworten"
+  tags:
+    - "merge"
+    - "synthesis"
+    - "dppm"
