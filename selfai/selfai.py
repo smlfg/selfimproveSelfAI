@@ -907,13 +907,23 @@ def _handle_selfimprove(
     # Erstelle temporären Plan für Self-Improvement
     ui.status("Erstelle Self-Improvement Plan...", "info")
     
+    # FIX: Use actual available agent instead of hardcoded
+    available_agents = agent_manager.list_agents()
+    if not available_agents:
+        ui.status("Keine Agenten verfügbar für Self-Improvement!", "error")
+        return
+
+    # Use first available agent (or active agent)
+    default_agent = agent_manager.active_agent if agent_manager.active_agent else available_agents[0]
+    agent_key = default_agent.key
+
     try:
         # Verwende den ersten verfügbaren Planner
         if hasattr(planner_interface, 'plan'):
             plan_data = planner_interface.plan(
                 f"Self-Improvement: {goal}",
                 PlannerContext(
-                    agents=[{"key": "code_improver", "display_name": "Code Improver", "description": "Analysiert und verbessert Code"}],
+                    agents=[{"key": agent_key, "display_name": default_agent.display_name, "description": "Self-Improvement Agent"}],
                     memory_summary=f"SelfAI Code mit {code_analysis['total_files']} Dateien"
                 )
             )
@@ -925,17 +935,17 @@ def _handle_selfimprove(
                         "id": "S1",
                         "title": "Code-Analyse",
                         "objective": f"Analysiere SelfAI Code für: {goal}",
-                        "agent_key": "code_improver",
+                        "agent_key": agent_key,
                         "engine": "minimax",
                         "parallel_group": 1,
                         "depends_on": [],
                         "notes": "Automatische Code-Analyse und Qualitätsbewertung"
                     },
                     {
-                        "id": "S2", 
+                        "id": "S2",
                         "title": "Optimierungen implementieren",
                         "objective": "Implementiere identifizierte Verbesserungen mit Aider",
-                        "agent_key": "code_improver",
+                        "agent_key": agent_key,
                         "engine": "minimax",
                         "parallel_group": 2,
                         "depends_on": ["S1"],
@@ -945,7 +955,7 @@ def _handle_selfimprove(
                         "id": "S3",
                         "title": "Tests ausführen",
                         "objective": "Führe automatisierte Tests aus und validiere Änderungen",
-                        "agent_key": "code_improver", 
+                        "agent_key": agent_key,
                         "engine": "minimax",
                         "parallel_group": 2,
                         "depends_on": ["S2"],
