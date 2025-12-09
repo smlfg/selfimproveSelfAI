@@ -974,7 +974,10 @@ def _handle_selfimprove(
                     ]
                 }
             }
-        
+
+        # FIX: Sanitize agent_keys in plan (replace invalid agents with available ones)
+        _sanitize_plan_agents(plan_data, agent_manager, ui)
+
         # Zeige Plan dem User
         ui.show_plan(plan_data)
         
