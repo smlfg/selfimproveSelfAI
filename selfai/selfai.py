@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import subprocess
 from pathlib import Path
 
 try:
@@ -640,6 +641,7 @@ def _select_merge_backend(
     )
     return backends[choice]
 
+
 def _load_minimax(config, ui: TerminalUI):
     """Lädt MiniMax als primäres Cloud-Backend."""
     try:
@@ -695,6 +697,291 @@ def _load_cpu(models_root: Path, ui: TerminalUI):
             ui.status(f"Fehler beim Laden von '{model_filename}': {exc}", "warning")
 
     return None, None
+
+
+def _validate_selfimprove_safety(ui: TerminalUI) -> bool:
+    """Prüft Safety-Bedingungen für Self-Improvement."""
+    warnings = []
+    
+    # Prüfe pytest Verfügbarkeit
+    try:
+        result = subprocess.run([sys.executable, "-m", "pytest", "--version"], 
+                              capture_output=True, text=True)
+        if result.returncode != 0:
+            warnings.append("pytest nicht verfügbar - automatisierte Tests nicht möglich")
+    except FileNotFoundError:
+        warnings.append("pytest nicht installiert - automatisierte Tests nicht möglich")
+    
+    # Prüfe Git Status
+    try:
+        result = subprocess.run(["git", "status", "--porcelain"], 
+                              capture_output=True, text=True, cwd=project_root)
+        if result.stdout.strip():
+            warnings.append("Git Repository nicht sauber - uncommitted changes vorhanden")
+    except FileNotFoundError:
+        warnings.append("Git nicht verfügbar - Versionskontrolle nicht möglich")
+    except Exception:
+        warnings.append("Git Status konnte nicht geprüft werden")
+    
+    # Prüfe Aider Verfügbarkeit
+    try:
+        result = subprocess.run(["aider", "--version"], 
+                              capture_output=True, text=True)
+        if result.returncode != 0:
+            warnings.append("Aider nicht verfügbar - automatische Code-Änderungen nicht möglich")
+    except FileNotFoundError:
+        warnings.append("Aider nicht installiert - automatische Code-Änderungen nicht möglich")
+    
+    if warnings:
+        ui.status("SICHERHEITSWARNUNGEN für Self-Improvement:", "warning")
+        for warning in warnings:
+            ui.status(f"- {warning}", "warning")
+        
+        if not ui.confirm("Trotzdem fortfahren?", default_yes=False):
+            ui.status("Self-Improvement abgebrochen.", "info")
+            return False
+    
+    return True
+
+
+def _analyze_selfai_code(ui: TerminalUI) -> dict[str, str]:
+    """Analysiert SelfAI Code-Struktur und sammelt alle Python-Dateien."""
+    ui.status("Analysiere SelfAI Code-Struktur...", "info")
+    
+    code_analysis = {
+        "files": [],
+        "total_files": 0,
+        "total_lines": 0,
+        "modules": []
+    }
+    
+    selfai_dir = project_root / "selfai"
+    if not selfai_dir.exists():
+        ui.status("SelfAI Verzeichnis nicht gefunden.", "warning")
+        return code_analysis
+    
+    # Sammle alle Python-Dateien
+    for py_file in selfai_dir.rglob("*.py"):
+        try:
+            relative_path = py_file.relative_to(project_root)
+            content = py_file.read_text(encoding="utf-8")
+            lines = len(content.splitlines())
+            
+            code_analysis["files"].append({
+                "path": str(relative_path),
+                "lines": lines,
+                "size": len(content)
+            })
+            code_analysis["total_files"] += 1
+            code_analysis["total_lines"] += lines
+            
+            # Extrahiere Modul-Informationen
+            if "__init__.py" in str(py_file):
+                module_path = str(relative_path.parent).replace("/", ".")
+                if module_path not in code_analysis["modules"]:
+                    code_analysis["modules"].append(module_path)
+                    
+        except Exception as exc:
+            ui.status(f"Fehler beim Lesen von {py_file}: {exc}", "warning")
+    
+    # Sortiere Dateien nach Pfad
+    code_analysis["files"].sort(key=lambda x: x["path"])
+    
+    ui.status(f"Code-Analyse abgeschlossen: {code_analysis['total_files']} Dateien, {code_analysis['total_lines']} Zeilen", "success")
+    return code_analysis
+
+
+def _handle_selfimprove(
+    goal: str,
+    agent_manager: AgentManager,
+    memory_system: MemorySystem,
+    ui: TerminalUI,
+    planner_interface,
+    execution_backends: list[dict[str, object]],
+    backend_label: str,
+) -> None:
+    """Behandelt den /selfimprove Command für Selbst-Optimierung."""
+    
+    if not goal.strip():
+        ui.status("Bitte ein Ziel für Self-Improvement angeben: /selfimprove <ziel>", "warning")
+        return
+    
+    ui.status(f"Starte Self-Improvement für Ziel: {goal}", "info")
+    
+    # Safety-Checks
+    if not _validate_selfimprove_safety(ui):
+        return
+    
+    # Code-Analyse
+    code_analysis = _analyze_selfai_code(ui)
+    
+    # Erstelle Self-Improvement Kontext
+    files_summary = "\n".join([
+        f"- {file_info['path']} ({file_info['lines']} Zeilen)"
+        for file_info in code_analysis["files"][:20]  # Erste 20 Dateien
+    ])
+    
+    if len(code_analysis["files"]) > 20:
+        files_summary += f"\n- ... und {len(code_analysis['files']) - 20} weitere Dateien"
+    
+    context = f"""
+    SELBST-OPTIMIERUNG VON SELFAI:
+    Ziel: {goal}
+    
+    VERFÜGBARE DATEIEN:
+    {files_summary}
+    
+    PROJEKT-STATISTIK:
+    - Gesamt-Dateien: {code_analysis['total_files']}
+    - Gesamt-Zeilen: {code_analysis['total_lines']}
+    - Module: {', '.join(code_analysis['modules'][:10])}
+    
+    SELBST-VERBESSERUNG AUFGABEN:
+    1. Analysiere Code-Qualität und Performance
+    2. Identifiziere Verbesserungspotentiale
+    3. Implementiere Optimierungen
+    4. Führe Tests aus
+    5. Dokumentiere Änderungen
+    
+    WICHTIGE REGELN:
+    - Jede Änderung bekommt eigenen Git-Commit
+    - Verwende 'run_aider_task' tool für Code-Änderungen
+    - Bei Fehlern: git revert möglich
+    - Führe automatisierte Tests nach Änderungen aus
+    - Dokumentiere alle Modifikationen
+    
+    AUSGABE-FORMAT:
+    - Detaillierte Analyse der aktuellen Implementierung
+    - Konkrete Verbesserungsvorschläge mit Prioritäten
+    - Implementierungsplan mit klaren Schritten
+    - Erwartete Verbesserungen und Metriken
+    """
+    
+    # Erstelle temporären Plan für Self-Improvement
+    ui.status("Erstelle Self-Improvement Plan...", "info")
+    
+    try:
+        # Verwende den ersten verfügbaren Planner
+        if hasattr(planner_interface, 'plan'):
+            plan_data = planner_interface.plan(
+                f"Self-Improvement: {goal}",
+                PlannerContext(
+                    agents=[{"key": "code_improver", "display_name": "Code Improver", "description": "Analysiert und verbessert Code"}],
+                    memory_summary=f"SelfAI Code mit {code_analysis['total_files']} Dateien"
+                )
+            )
+        else:
+            # Fallback: Manueller Plan
+            plan_data = {
+                "subtasks": [
+                    {
+                        "id": "S1",
+                        "title": "Code-Analyse",
+                        "objective": f"Analysiere SelfAI Code für: {goal}",
+                        "agent_key": "code_improver",
+                        "engine": "minimax",
+                        "parallel_group": 1,
+                        "depends_on": [],
+                        "notes": "Automatische Code-Analyse und Qualitätsbewertung"
+                    },
+                    {
+                        "id": "S2", 
+                        "title": "Optimierungen implementieren",
+                        "objective": "Implementiere identifizierte Verbesserungen mit Aider",
+                        "agent_key": "code_improver",
+                        "engine": "minimax",
+                        "parallel_group": 2,
+                        "depends_on": ["S1"],
+                        "notes": "Code-Änderungen mit Git-Commit"
+                    },
+                    {
+                        "id": "S3",
+                        "title": "Tests ausführen",
+                        "objective": "Führe automatisierte Tests aus und validiere Änderungen",
+                        "agent_key": "code_improver", 
+                        "engine": "minimax",
+                        "parallel_group": 2,
+                        "depends_on": ["S2"],
+                        "notes": "Test-Validierung der Verbesserungen"
+                    }
+                ],
+                "merge": {
+                    "strategy": "Fasse Self-Improvement Ergebnisse zu einem finalen Bericht zusammen",
+                    "steps": [
+                        {
+                            "title": "Verbesserungsbericht",
+                            "description": "Erstelle detaillierten Bericht über alle Verbesserungen",
+                            "depends_on": ["S3"]
+                        }
+                    ]
+                }
+            }
+        
+        # Zeige Plan dem User
+        ui.show_plan(plan_data)
+        
+        if not ui.confirm_plan():
+            ui.status("Self-Improvement Plan verworfen.", "warning")
+            return
+        
+        # Speichere Plan
+        plan_path = memory_system.save_plan(f"Self-Improvement: {goal}", plan_data)
+        ui.status(f"Self-Improvement Plan gespeichert: {plan_path.name}", "success")
+        
+        # Führe Plan aus
+        if not ui.confirm_execution():
+            ui.status("Self-Improvement Ausführung übersprungen.", "info")
+            return
+        
+        ui.status("Starte Self-Improvement Ausführung...", "info")
+        
+        # Führe mit ExecutionDispatcher aus
+        try:
+            dispatcher = ExecutionDispatcher(
+                plan_path=plan_path,
+                agent_manager=agent_manager,
+                memory_system=memory_system,
+                llm_backends=execution_backends,
+                ui=ui,
+                backend_label=backend_label,
+                llm_timeout=30.0,  # Kürzerer Timeout für Self-Improvement
+                retry_attempts=1,
+                retry_delay=2.0,
+                max_output_tokens=2048,
+            )
+            dispatcher.run()
+            ui.status("Self-Improvement erfolgreich ausgeführt.", "success")
+            
+            # Merge Phase
+            primary_backend = execution_backends[0]
+            merge_backend = {
+                "label": "Self-Improvement Merge",
+                "type": primary_backend.get("type", "minimax"),
+                "interface": primary_backend.get("interface"),
+                "max_tokens": 2048,
+                "name": "selfimprove_merge",
+                "model": "selfimprove",
+            }
+            
+            merge_success = _execute_merge_phase(
+                plan_path,
+                merge_backend=merge_backend,
+                agent_manager=agent_manager,
+                memory_system=memory_system,
+                ui=ui,
+                execution_timeout=30.0,
+            )
+            
+            if merge_success:
+                ui.status("Self-Improvement erfolgreich abgeschlossen!", "success")
+            else:
+                ui.status("Self-Improvement mit Fehlern abgeschlossen.", "warning")
+                
+        except Exception as exc:
+            ui.status(f"Self-Improvement Ausführung fehlgeschlagen: {exc}", "error")
+            
+    except Exception as exc:
+        ui.status(f"Self-Improvement Planung fehlgeschlagen: {exc}", "error")
 
 
 def main():
@@ -802,6 +1089,7 @@ def main():
     ui.show_available_tools(available_tools)
 
     # FIX: Planner Provider Loading mit korrekten Headers und Type-based Selection
+    active_planner_interface = None
     if planner_cfg and planner_cfg.enabled:
         for provider in planner_cfg.providers:
             try:
@@ -836,6 +1124,11 @@ def main():
                     "timeout": provider.timeout,
                 }
                 planner_provider_order.append(provider.name)
+                
+                # Setze erstes Interface als aktives
+                if active_planner_interface is None:
+                    active_planner_interface = interface
+                
                 ui.status(
                     f"Planner-Provider '{provider.name}' ({provider.type}) aktiv.",
                     "info",
@@ -850,8 +1143,10 @@ def main():
         stored_provider = _load_active_planner(memory_system)
         if stored_provider and stored_provider in planner_providers:
             active_planner_provider = stored_provider
+            active_planner_interface = planner_providers[stored_provider]["interface"]
         else:
             active_planner_provider = planner_provider_order[0]
+            active_planner_interface = planner_providers[active_planner_provider]["interface"]
             _save_active_planner(memory_system, active_planner_provider)
         ui.status(
             f"Aktiver Planner-Provider: {active_planner_provider}", "info"
@@ -954,6 +1249,7 @@ def main():
     command_hint = "Bereit. Nachricht eingeben, "
     if planner_providers:
         command_hint += "'/plan <Ziel>' für DPPM-Plan, '/planner list' für Provider, "
+    command_hint += "'/selfimprove <ziel>' für Selbst-Optimierung, "
     command_hint += "'/switch <Name|Nummer>' zum Wechseln, 'quit' zum Beenden."
     ui.status(command_hint, "info")
 
@@ -1015,6 +1311,24 @@ def main():
             continue
         if user_input.lower() == "quit":
             break
+
+        # NEU: /selfimprove Command
+        if user_input.lower().startswith('/selfimprove'):
+            if not active_planner_interface:
+                ui.status("Kein Planner-Interface verfügbar für Self-Improvement.", "warning")
+                continue
+                
+            goal = user_input[len('/selfimprove'):].strip()
+            _handle_selfimprove(
+                goal=goal,
+                agent_manager=agent_manager,
+                memory_system=memory_system,
+                ui=ui,
+                planner_interface=active_planner_interface,
+                execution_backends=execution_backends,
+                backend_label=backend_label,
+            )
+            continue
 
         if user_input.lower() == "/memory":
             categories = memory_system.list_categories()
@@ -1091,6 +1405,7 @@ def main():
                     )
                     continue
                 active_planner_provider = desired
+                active_planner_interface = info["interface"]
                 _save_active_planner(memory_system, desired)
                 ui.status(
                     f"Aktiver Planner-Provider gesetzt auf '{desired}'.",
@@ -1257,6 +1572,7 @@ def main():
                     and selected_provider_name != active_planner_provider
                 ):
                     active_planner_provider = selected_provider_name
+                    active_planner_interface = planner_providers[selected_provider_name]["interface"]
                     _save_active_planner(memory_system, selected_provider_name)
                     ui.status(
                         f"Aktiver Planner-Provider aktualisiert auf '{selected_provider_name}'.",
