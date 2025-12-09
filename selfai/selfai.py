@@ -32,6 +32,7 @@ from selfai.core.planner_minimax_interface import PlannerMinimaxInterface
 from selfai.core.merge_minimax_interface import MergeMinimaxInterface  # Falls erstellt
 from selfai.core.tool_calling_ollama_interface import ToolCallingOllamaInterface
 from selfai.ui.terminal_ui import TerminalUI
+from selfai.tools.tool_registry import list_all_tools
 
 PLANNER_STATE_FILENAME = "planner_state.json"
 MERGE_STATE_FILENAME = "merge_state.json"
@@ -651,7 +652,6 @@ def _load_minimax(config, ui: TerminalUI):
             api_base=minimax_config.api_base,
             model=minimax_config.model
         )
-        ui.status("MiniMax Backend aktiviert (Cloud - Primary)", "success")
         return interface, "MiniMax"
     except Exception as exc:
         ui.status(f"MiniMax konnte nicht geladen werden: {exc}", "warning")
@@ -670,12 +670,9 @@ def _load_qnn(models_root: Path, ui: TerminalUI):
         ui.status("Keine QNN-Modelle gefunden.", "warning")
         return None, None
 
-    ui.status(f"Gefunden: {len(qnn_models)} QNN (NPU) Modell(e).", "info")
     model_path = qnn_models[0]
     try:
-        ui.status(f"Versuche QNN-Modell zu laden: {model_path.name}", "info")
         interface = NpuLLMInterface(model_path=str(model_path))
-        ui.status(f"QNN-Modell '{model_path.name}' aktiv.", "success")
         return interface, f"qnn:{model_path.name}"
     except (ImportError, FileNotFoundError, RuntimeError) as exc:
         ui.status(f"Fehler beim Laden des QNN-Modells: {exc}", "warning")
@@ -692,12 +689,7 @@ def _load_cpu(models_root: Path, ui: TerminalUI):
         if not model_path.exists():
             continue
         try:
-            ui.status(f"Versuche CPU-Modell zu laden: {model_path}", "info")
             interface = LocalLLMInterface(model_path=str(model_path))
-            ui.status(
-                f"CPU-Modell '{model_filename}' erfolgreich geladen und aktiv.",
-                "success",
-            )
             return interface, f"cpu:{model_filename}"
         except (FileNotFoundError, RuntimeError, ImportError) as exc:
             ui.status(f"Fehler beim Laden von '{model_filename}': {exc}", "warning")
@@ -710,7 +702,6 @@ def main():
     ui.clear()
     ui.banner()
     ui.status("SelfAI wird gestartet...", "info")
-    _show_pipeline_overview(ui)
 
     agents_path = project_root / "agents"
     agent_manager = AgentManager(agents_dir=agents_path, verbose=False)
@@ -739,8 +730,6 @@ def main():
     merge_provider_order: list[str] = []
     active_merge_provider: str | None = None
 
-    ui.status("Lade LLM-Backends in Priority-Reihenfolge...", "info")
-
     try:
         config = load_configuration()
         ui.status("Konfiguration geladen.", "success")
@@ -749,8 +738,6 @@ def main():
         )
         planner_cfg = getattr(config, "planner", None)
         merge_cfg = getattr(config, "merge", None)
-
-        _show_system_resources(ui)
     except (FileNotFoundError, ValueError) as exc:
         ui.status(f"Konfiguration nicht verfügbar: {exc}", "warning")
     except Exception as exc:
@@ -808,12 +795,9 @@ def main():
     llm_interface = execution_backends[0]["interface"]
     backend_label = execution_backends[0].get("label") or "Plan"
     
-    ui.status(f"Primäres LLM-Backend: {backend_label}", "success")
-    backend_names = [backend["name"] for backend in execution_backends]
-    ui.status(f"Verfügbare Backends: {', '.join(backend_names)}", "info")
+    ui.status(f"Primäres LLM-Backend: {backend_label}, Verfügbare Backends: {', '.join([backend['name'] for backend in execution_backends])}", "success")
 
     # Load tools
-    from selfai.tools.tool_registry import list_all_tools
     available_tools = list_all_tools()
     ui.show_available_tools(available_tools)
 
@@ -962,6 +946,10 @@ def main():
         active_key=agent_manager.active_agent.key,
     )
     available_agents = agent_manager.list_agents()
+
+    # Show pipeline overview and system resources before main loop
+    _show_pipeline_overview(ui)
+    _show_system_resources(ui)
 
     command_hint = "Bereit. Nachricht eingeben, "
     if planner_providers:
