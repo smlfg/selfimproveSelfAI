@@ -794,19 +794,20 @@ def _validate_selfimprove_safety(ui: TerminalUI) -> bool:
 def _analyze_selfai_code(ui: TerminalUI) -> dict[str, str]:
     """Analysiert SelfAI Code-Struktur und sammelt alle Python-Dateien."""
     ui.status("Analysiere SelfAI Code-Struktur...", "info")
-    
+
     code_analysis = {
         "files": [],
         "total_files": 0,
         "total_lines": 0,
         "modules": []
     }
-    
-    selfai_dir = project_root / "selfai"
+
+    # FIX: project_root IST bereits selfai/, nicht parent davon
+    selfai_dir = project_root  # Direkt verwenden!
     if not selfai_dir.exists():
         ui.status("SelfAI Verzeichnis nicht gefunden.", "warning")
         return code_analysis
-    
+
     # Sammle alle Python-Dateien
     for py_file in selfai_dir.rglob("*.py"):
         try:
