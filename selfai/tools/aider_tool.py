@@ -3,7 +3,26 @@
 import os
 import subprocess
 import tempfile
+import shutil
 from pathlib import Path
+from datetime import datetime
+
+
+def _create_backup(file_paths: list[str]) -> str:
+    """
+    Creates backup of files before Aider modifies them.
+    Returns backup directory path.
+    """
+    backup_dir = Path(f"/tmp/selfai_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+    backup_dir.mkdir(parents=True, exist_ok=True)
+
+    for file_path in file_paths:
+        file_path = Path(file_path)
+        if file_path.exists():
+            backup_file = backup_dir / file_path.name
+            shutil.copy2(file_path, backup_file)
+
+    return str(backup_dir)
 
 
 def run_aider_task(
@@ -39,6 +58,14 @@ def run_aider_task(
     file_list = []
     if files.strip():
         file_list = [f.strip() for f in files.split(",") if f.strip()]
+
+    # SAFETY: Create backup before modifying files
+    backup_dir = ""
+    if file_list:
+        try:
+            backup_dir = _create_backup(file_list)
+        except Exception as e:
+            return f"Error creating backup: {e}"
 
     # Setup environment variables for MiniMax
     env = os.environ.copy()
@@ -89,6 +116,9 @@ def run_aider_task(
         # Format output
         output = []
         output.append(f"=== Aider Task: {task_description[:100]}... ===\n")
+
+        if backup_dir:
+            output.append(f"🔒 Backup created: {backup_dir}\n")
 
         if result.returncode == 124:  # Timeout exit code
             output.append(f"⚠️  Task timed out after {timeout} seconds\n")

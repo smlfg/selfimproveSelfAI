@@ -38,6 +38,30 @@ from selfai.tools.tool_registry import list_all_tools
 PLANNER_STATE_FILENAME = "planner_state.json"
 MERGE_STATE_FILENAME = "merge_state.json"
 
+# SAFETY: Critical files that /selfimprove must NEVER modify
+# These files are too risky - any bug here breaks the entire system
+SELFIMPROVE_PROTECTED_FILES = [
+    'selfai/selfai.py',  # Main orchestration - YOU ARE HERE!
+    'selfai/config_loader.py',  # Config system
+    'selfai/core/agent_manager.py',  # Agent loading
+    'selfai/tools/tool_registry.py',  # Tool system
+]
+
+# SAFETY: Files that need explicit user approval before modification
+SELFIMPROVE_SENSITIVE_FILES = [
+    'selfai/core/execution_dispatcher.py',  # Core execution
+    'selfai/core/planner_minimax_interface.py',  # Planning system
+    'selfai/core/merge_minimax_interface.py',  # Merge system
+    'selfai/core/memory_system.py',  # Memory system
+]
+
+# SAFETY: Allowed file patterns for self-improvement
+SELFIMPROVE_ALLOWED_PATTERNS = [
+    'selfai/core/*_interface.py',  # LLM interfaces
+    'selfai/tools/*.py',  # Tool implementations
+    'selfai/ui/*.py',  # UI improvements
+]
+
 
 def _format_gigabytes(value_bytes: float) -> float:
     return value_bytes / (1024 ** 3)
@@ -699,13 +723,36 @@ def _load_cpu(models_root: Path, ui: TerminalUI):
     return None, None
 
 
+def _check_file_safety(file_path: str, ui: TerminalUI) -> tuple[bool, str]:
+    """
+    Prüft ob eine Datei für Self-Improvement erlaubt ist.
+    Returns: (allowed, reason)
+    """
+    # Normalisiere Pfad
+    file_path = file_path.replace('\\', '/')
+
+    # CRITICAL: Geschützte Dateien dürfen NIE geändert werden
+    for protected in SELFIMPROVE_PROTECTED_FILES:
+        if file_path.endswith(protected) or protected in file_path:
+            return False, f"🚫 PROTECTED: {file_path} ist kritisch und darf nicht geändert werden!"
+
+    # SENSITIVE: Benötigen explizite User-Approval
+    for sensitive in SELFIMPROVE_SENSITIVE_FILES:
+        if file_path.endswith(sensitive) or sensitive in file_path:
+            ui.status(f"⚠️  SENSITIVE: {file_path} ist sensibel", "warning")
+            if not ui.confirm(f"Wirklich {file_path} ändern?", default_yes=False):
+                return False, f"❌ USER DENIED: {file_path} Änderung abgelehnt"
+
+    return True, "✅ File safe to modify"
+
+
 def _validate_selfimprove_safety(ui: TerminalUI) -> bool:
     """Prüft Safety-Bedingungen für Self-Improvement."""
     warnings = []
-    
+
     # Prüfe pytest Verfügbarkeit
     try:
-        result = subprocess.run([sys.executable, "-m", "pytest", "--version"], 
+        result = subprocess.run([sys.executable, "-m", "pytest", "--version"],
                               capture_output=True, text=True)
         if result.returncode != 0:
             warnings.append("pytest nicht verfügbar - automatisierte Tests nicht möglich")
