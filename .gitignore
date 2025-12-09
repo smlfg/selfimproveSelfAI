@@ -60,3 +60,4 @@ selfai/memory/
 .DS_Store
 Thumbs.db
 desktop.ini
+.aider*

@@ -139,13 +139,7 @@ def load_configuration(config_path: str = 'config.yaml') -> AppConfig:
             if not isinstance(provider_data, dict):
                 raise ValueError(f"'{section_name}.providers[{i}]' muss ein Dictionary sein.")
             
-            # API-Schlüssel aus Umgebungsvariable laden wenn api_key_env gesetzt ist
-            if 'api_key_env' in provider_data and provider_data['api_key_env']:
-                env_key = provider_data['api_key_env']
-                provider_data = dict(provider_data)  # Kopie erstellen
-                provider_data['api_key'] = os.getenv(env_key, '')
-                del provider_data['api_key_env']  # Entfernen da jetzt direkt als api_key
-            
+            # ProviderConfig behält api_key_env - Interfaces laden API Key selbst
             try:
                 provider = ProviderConfig(**provider_data)
                 providers.append(provider)

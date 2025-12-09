@@ -1,6 +1,6 @@
 from typing import List, Dict
 from openai import OpenAI
-from config_loader import MiniMaxConfig  # Updated to import from the simplified config_loader
+from selfai.config_loader import MiniMaxConfig  # Updated to import from the simplified config_loader
 
 # A message is a dictionary with a role and content
 Message = Dict[str, str]
