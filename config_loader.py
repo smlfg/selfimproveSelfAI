@@ -22,6 +22,11 @@ class SystemConfig:
     streaming_enabled: bool = True
     stream_timeout: float = 60.0
 
+    # Agent Mode (Tool-Calling)
+    enable_agent_mode: bool = False  # Disabled by default until tested
+    agent_max_steps: int = 10
+    agent_verbose: bool = False
+
 
 @dataclass
 class CPUFallbackConfig:

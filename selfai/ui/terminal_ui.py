@@ -21,6 +21,7 @@ class TerminalUI:
         self._spinner_message = ""
         self._first_chunk_printed = False
         self._enable_color = self._detect_color_support()
+        self._yolo_mode = False  # YOLO mode: auto-accept all prompts
         self._colors = {
             "cyan": "\033[96m",
             "magenta": "\033[95m",
@@ -164,7 +165,27 @@ class TerminalUI:
         formatted = json.dumps(plan, indent=2, ensure_ascii=False)
         print(formatted)
 
+    def enable_yolo_mode(self) -> None:
+        """Enable YOLO mode - auto-accept all prompts"""
+        self._yolo_mode = True
+        self.status("🚀 YOLO MODE ACTIVATED - Auto-accepting all prompts!", "warning")
+
+    def disable_yolo_mode(self) -> None:
+        """Disable YOLO mode"""
+        self._yolo_mode = False
+        self.status("🛑 YOLO MODE DEACTIVATED", "info")
+
+    def is_yolo_mode(self) -> bool:
+        """Check if YOLO mode is active"""
+        return self._yolo_mode
+
     def _confirm(self, prompt: str, default_yes: bool = False) -> bool:
+        # YOLO mode: always accept
+        if self._yolo_mode:
+            suffix = "Y/n" if default_yes else "y/N"
+            print(self.colorize(f"{prompt} ({suffix}): ", "yellow") + self.colorize("y", "green") + " (YOLO)")
+            return True
+
         suffix = "Y/n" if default_yes else "y/N"
         answer = input(self.colorize(f"{prompt} ({suffix}): ", "yellow")).strip().lower()
         if not answer:
@@ -185,6 +206,18 @@ class TerminalUI:
     def choose_option(self, prompt: str, options: list[str], default_index: int | None = None) -> int:
         if not options:
             raise ValueError("Optionsliste darf nicht leer sein")
+
+        # YOLO mode: always choose first option (index 0) or default
+        if self._yolo_mode:
+            chosen_idx = default_index if default_index is not None else 0
+            for idx, option in enumerate(options, start=1):
+                marker = " ← YOLO" if idx - 1 == chosen_idx else ""
+                print(self.colorize(f"  {idx}. {option}{marker}", "cyan"))
+            suffix = f"1-{len(options)}"
+            default_hint = f" (Default {default_index + 1})" if default_index is not None else ""
+            print(self.colorize(f"{prompt} [{suffix}]{default_hint}: ", "yellow") + self.colorize(f"{chosen_idx + 1}", "green") + " (YOLO)")
+            return chosen_idx
+
         for idx, option in enumerate(options, start=1):
             print(self.colorize(f"  {idx}. {option}", "cyan"))
         while True:
@@ -219,7 +252,7 @@ class TerminalUI:
             print(f"\n  {self.colorize(category_name, 'magenta')}:")
             for tool in tool_list:
                 name_colored = self.colorize(tool["name"], "cyan")
-                desc = tool["description"][:80] + "..." if len(tool["description"]) > 80 else tool["description"]
+                desc = tool["description"][:200] + "..." if len(tool["description"]) > 200 else tool["description"]
                 print(f"    • {name_colored}")
                 print(f"      {desc}")
 
@@ -230,3 +263,68 @@ class TerminalUI:
 
         print(self.colorize("\n" + "─" * 60, "cyan"))
         print(self.colorize(f"  Gesamt: {len(tools)} Tools verfügbar\n", "green"))
+
+    def show_tool_call(self, tool_name: str, arguments: dict = None) -> None:
+        """
+        Zeigt einen Tool-Call mit spezialisierten Emojis an.
+
+        Args:
+            tool_name: Name des aufgerufenen Tools
+            arguments: Optionale Tool-Argumente
+        """
+        # Tool-spezifische Emojis und Labels
+        tool_icons = {
+            "list_selfai_files": ("👁️ 📁", "Inspiziere Dateien"),
+            "read_selfai_code": ("👁️ 📄", "Lese Code"),
+            "search_selfai_code": ("👁️ 🔍", "Durchsuche Code"),
+            "run_aider_task": ("🤖", "Aider Task"),
+            "run_openhands_task": ("🤖", "OpenHands Task"),
+            "list_project_files": ("📁", "Liste Dateien"),
+            "read_project_file": ("📄", "Lese Datei"),
+            "search_project_files": ("🔍", "Suche Dateien"),
+            "get_current_weather": ("🌤️", "Wetter"),
+            "find_train_connections": ("🚆", "Bahn"),
+            "add_calendar_event": ("📅", "Kalender"),
+            "list_calendar_events": ("📅", "Kalender"),
+        }
+
+        icon, label = tool_icons.get(tool_name, ("🔧", "Tool"))
+
+        # Basis-Anzeige
+        tool_display = self.colorize(f"{icon} {label}: {tool_name}", "cyan")
+        print(f"\n{tool_display}", end="")
+
+        # Zeige wichtige Argumente für Self-Inspection Tools
+        if arguments:
+            if tool_name == "read_selfai_code" and "file_path" in arguments:
+                file_name = arguments["file_path"]
+                print(self.colorize(f" → {file_name}", "yellow"), end="")
+            elif tool_name == "list_selfai_files" and "subdirectory" in arguments:
+                subdir = arguments["subdirectory"] or "selfai/"
+                print(self.colorize(f" → {subdir}", "yellow"), end="")
+            elif tool_name == "search_selfai_code" and "pattern" in arguments:
+                pattern = arguments["pattern"]
+                print(self.colorize(f" → '{pattern}'", "yellow"), end="")
+
+        print()  # Newline nach Tool-Call
+
+    def show_think_tags(self, think_contents: list[str]) -> None:
+        """
+        Zeigt <think> tag Inhalte in separater Formatierung an.
+
+        Args:
+            think_contents: Liste von extrahierten Denk-Prozess-Inhalten
+        """
+        if not think_contents:
+            return
+
+        for idx, think in enumerate(think_contents, start=1):
+            # Dimmed/grey style for thinking process (not main content)
+            prefix = self.colorize(f"💭 [Thinking {idx}]", "blue")
+            # Clean up whitespace
+            think_clean = think.strip()
+            # Display with indentation
+            print(f"\n{prefix}")
+            for line in think_clean.split('\n'):
+                print(f"  {self.colorize(line, 'cyan')}")
+        print()  # Extra line after all thinks

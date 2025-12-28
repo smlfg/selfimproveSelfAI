@@ -3,3 +3,6 @@
 
 # Install optional NPU dependencies
 -r requirements-npu.txt
+
+# Optional: Install UI enhancements (parallel streaming)
+# -r requirements-ui.txt

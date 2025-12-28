@@ -37,6 +37,10 @@ class MemorySystem:
         self.plan_dir = self.memory_dir / "plans"
         self.plan_dir.mkdir(exist_ok=True)
 
+        # Session Management: Track session start time
+        self.session_start = datetime.now()
+        self.context_window_minutes = 30  # Only load context from last 30 minutes
+
     def save_conversation(self, agent: Agent, user_prompt: str, llm_response: str):
         """
         Speichert eine vollständige Interaktion in einer formatierten Textdatei.
@@ -122,12 +126,24 @@ class MemorySystem:
     ) -> list:
         """
         Lädt Kontext aus dem Memory und filtert ihn anhand einfacher Tags.
+        Only loads files from current session (within context_window_minutes).
         """
 
         categories = agent.memory_categories if agent.memory_categories else ["general"]
         candidate_files = self._get_candidate_files(categories)
 
         if not candidate_files or limit <= 0:
+            return []
+
+        # Filter by time: Only files from current session
+        import time
+        cutoff_time = time.time() - (self.context_window_minutes * 60)
+        candidate_files = [
+            f for f in candidate_files
+            if f.stat().st_mtime >= cutoff_time
+        ]
+
+        if not candidate_files:
             return []
 
         # Maximal 50 Kandidaten prüfen, um IO zu begrenzen.

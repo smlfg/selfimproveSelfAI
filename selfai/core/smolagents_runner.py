@@ -55,9 +55,11 @@ class _SelfAIModel(Model):
     Adapter that makes a SelfAI LLM interface compatible with the `smolagents` model API.
     """
 
-    def __init__(self, llm_interface: Any, *, model_id: str | None = None):
+    def __init__(self, llm_interface: Any, *, model_id: str | None = None, ui: Any | None = None, task_id: str | None = None):
         super().__init__(model_id=model_id or getattr(llm_interface, "model_id", None), flatten_messages_as_text=True)
         self.llm_interface = llm_interface
+        self.ui = ui
+        self.task_id = task_id
 
     def generate(
         self,
@@ -101,18 +103,72 @@ class _SelfAIModel(Model):
 
         system_prompt = "\n\n".join(part for part in system_prompt_parts if part)
 
-        try:
-            response_text = self.llm_interface.generate_response(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt or "",
-                history=history or None,
-                timeout=completion_kwargs.get("timeout"),
-                max_output_tokens=completion_kwargs.get("max_tokens"),
-            )
-        except Exception as exc:  # pragma: no cover - passthrough for agent error handling
-            raise SmolAgentError(f"SelfAI LLM konnte keine Antwort generieren: {exc}") from exc
+        # Handle UI streaming if available
+        if self.ui and self.task_id and hasattr(self.llm_interface, "stream_generate_response"):
+            try:
+                chunks: list[str] = []
+                for chunk in self.llm_interface.stream_generate_response(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt or "",
+                    history=history or None,
+                    timeout=completion_kwargs.get("timeout"),
+                    max_output_tokens=completion_kwargs.get("max_tokens"),
+                ):
+                    if chunk:
+                        chunks.append(chunk)
+                        # Clean up chunk for display: fix newlines and suppress raw XML tags
+                        display_chunk = chunk.replace("\\n", "\n")
+                        
+                        # Simple heuristic to suppress raw <invoke> tags in stream
+                        # (The clean formatted action will be logged separately below)
+                        if "<invoke>" in display_chunk or "</invoke>" in display_chunk:
+                            continue 
+                            
+                        self.ui.add_response_chunk(self.task_id, display_chunk)
+                response_text = "".join(chunks)
+            except Exception as stream_exc:
+                if self.ui:
+                    self.ui.status(f"Streaming in SmolAgent S{self.task_id} failed: {stream_exc}", "warning")
+                response_text = self.llm_interface.generate_response(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt or "",
+                    history=history or None,
+                    timeout=completion_kwargs.get("timeout"),
+                    max_output_tokens=completion_kwargs.get("max_tokens"),
+                )
+        else:
+            try:
+                response_text = self.llm_interface.generate_response(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt or "",
+                    history=history or None,
+                    timeout=completion_kwargs.get("timeout"),
+                    max_output_tokens=completion_kwargs.get("max_tokens"),
+                )
+                if self.ui and self.task_id:
+                    # Clean display for non-streaming too
+                    display_text = response_text.replace("\\n", "\n")
+                    # Suppress raw invoke blocks roughly
+                    import re
+                    display_text = re.sub(r'<invoke>.*?</invoke>', '', display_text, flags=re.DOTALL)
+                    self.ui.add_response_chunk(self.task_id, display_text + "\n")
+            except Exception as exc:  # pragma: no cover - passthrough for agent error handling
+                raise SmolAgentError(f"SelfAI LLM konnte keine Antwort generieren: {exc}") from exc
 
         tool_calls, cleaned_content = self._parse_tool_calls(response_text)
+        
+        # Log tool calls to UI with clean formatting
+        if self.ui and self.task_id and tool_calls:
+            for call in tool_calls:
+                # Format arguments nicely
+                args_str = ", ".join(f"{k}={v}" for k, v in call.function.arguments.items())
+                # Truncate long args for display
+                if len(args_str) > 60:
+                    args_str = args_str[:57] + "..."
+                
+                # Send clean action line
+                action_msg = f"[bold magenta]🔧 ACTION: {call.function.name}[/]([dim]{args_str}[/])\n"
+                self.ui.add_response_chunk(self.task_id, action_msg)
 
         return ChatMessage(
             role=MessageRole.ASSISTANT,
@@ -264,20 +320,10 @@ class SmolAgentRunner:
         tool_names: Sequence[str] | None = None,
         max_steps: int | None = None,
         return_full_result: bool = True,
+        task_id: str | None = None, # Added task_id
     ) -> RunResult | Any:
         """
         Execute a tool-enabled task using smolagents.
-
-        Args:
-            task: Klartext-Aufgabe für den Agenten.
-            system_prompt: Ergänzende Verhaltens- oder Rollenbeschreibung.
-            history: Vorherige Dialognachrichten (role/content Paare).
-            tool_names: Optionale Auswahl an Tools; None nutzt Defaults bzw. alle.
-            max_steps: Schrittbegrenzung für den Agenten.
-            return_full_result: Steuert, ob ein `RunResult` zurückgegeben wird.
-
-        Returns:
-            Ergebnis des Agentenlaufes.
         """
         last_error: Exception | None = None
 
@@ -288,7 +334,7 @@ class SmolAgentRunner:
         for index in order:
             backend = self._set_backend(index)
             tools = self._resolve_tools(tool_names)
-            model = _SelfAIModel(backend["interface"], model_id=backend["label"])
+            model = _SelfAIModel(backend["interface"], model_id=backend["label"], ui=self.ui, task_id=task_id)
 
             agent = ToolCallingAgent(
                 tools=tools,

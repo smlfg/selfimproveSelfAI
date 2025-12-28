@@ -75,7 +75,7 @@ class ExecutionDispatcher:
         except json.JSONDecodeError as exc:
             raise ExecutionError(f"Plan-Datei enthält ungültiges JSON: {exc}")
 
-    def run(self) -> None:
+    def run(self, keep_ui_open: bool = False) -> None:
         """Führt Subtasks parallel nach parallel_group aus."""
 
         self.ui.status(
@@ -90,56 +90,106 @@ class ExecutionDispatcher:
             pg = task.get("parallel_group", 1)
             groups[pg].append(task)
 
+        # Initialize Persistent Parallel UI if available
+        use_rich_parallel = hasattr(self.ui, 'start_parallel_view')
+        if use_rich_parallel:
+            subtasks_info = [
+                {
+                    "id": task.get("id", "?"),
+                    "title": task.get("title", f"Task {task.get('id', '?')}"),
+                    "agent_key": task.get("agent_key", "default")
+                }
+                for task in self.subtasks
+            ]
+            header_goal = self.plan_data.get("metadata", {}).get("goal", "SelfAI Mission")
+            self.ui.start_parallel_view(plan_goal=header_goal, subtasks_info=subtasks_info)
+
+        # Initialize Multi-Pane UI (only if Rich not active)
+        multi_pane_ui = None
+        has_parallel_tasks = any(len(tasks) > 1 for tasks in groups.values())
+        if has_parallel_tasks and not use_rich_parallel:
+            try:
+                from selfai.ui.multi_pane_ui import MultiPaneUI
+                multi_pane_ui = MultiPaneUI(pane_height=4)
+                for task in self.subtasks:
+                    task_id = task.get("id", "?")
+                    multi_pane_ui.add_pane(task_id, task.get("title", f"Task {task_id}"))
+                self.multi_pane_ui = multi_pane_ui
+                self.ui.status("🖥️  Multi-Pane UI aktiviert", "info")
+            except Exception:
+                multi_pane_ui = None
+
         # Execute groups sequentially
         try:
             for group_num in sorted(groups.keys()):
                 tasks_in_group = groups[group_num]
 
-                # Check depends_on before starting group
+                # Check depends_on
                 for task in tasks_in_group:
                     deps = task.get("depends_on", [])
                     for dep_id in deps:
                         if self._get_task_status(dep_id) != "completed":
                             raise ExecutionError(f"Dependency {dep_id} not completed")
 
-                # Execute group in parallel
-                if len(tasks_in_group) == 1:
-                    # Single task - no threading overhead
-                    task = tasks_in_group[0]
-                    task_id = task.get("id") or "?"
-                    self.ui.status(f"Task {task_id}: {task.get('title', '')}", "info")
-                    self._update_task_status(task_id, "running", None)
-                    self._run_subtask(task)
-                    self._update_task_status(task_id, "completed", None)
-                else:
-                    # Multiple tasks - parallel execution
-                    self.ui.status(f"⚡ Parallel Group {group_num}: {len(tasks_in_group)} Tasks gleichzeitig...", "info")
+                self.ui.status(f"Starte Gruppe {group_num} ({len(tasks_in_group)} Tasks)...", "info")
 
-                    with ThreadPoolExecutor(max_workers=len(tasks_in_group)) as executor:
-                        futures = {}
-                        for task in tasks_in_group:
-                            task_id = task.get("id") or "?"
-                            self._update_task_status(task_id, "running", None)
-                            future = executor.submit(self._run_subtask, task)
-                            futures[future] = task_id
+                if multi_pane_ui:
+                    multi_pane_ui.start_rendering()
 
-                        # Wait for completion
-                        for future in as_completed(futures):
-                            task_id = futures[future]
-                            try:
-                                future.result()
-                                self._update_task_status(task_id, "completed", None)
-                                self.ui.status(f"✓ Task {task_id} abgeschlossen", "success")
-                            except Exception as exc:
-                                self._update_task_status(task_id, "failed", str(exc))
-                                self.ui.status(f"✗ Task {task_id} fehlgeschlagen: {exc}", "error")
-                                # Cancel remaining tasks
-                                executor.shutdown(wait=False, cancel_futures=True)
-                                raise ExecutionError(f"Parallel task {task_id} failed: {exc}")
+                # Add objectives to boxes immediately
+                if use_rich_parallel:
+                    for task in tasks_in_group:
+                        task_id = task.get("id") or "?"
+                        objective = task.get("objective", "")
+                        if objective:
+                            self.ui.add_response_chunk(task_id, f"[bold yellow]Ziel: {objective}[/]\n\n", skip_escape=True)
+
+                with ThreadPoolExecutor(max_workers=len(tasks_in_group)) as executor:
+                    futures = {}
+                    for task in tasks_in_group:
+                        task_id = task.get("id") or "?"
+                        self._update_task_status(task_id, "running", None)
+                        future = executor.submit(self._run_subtask, task)
+                        futures[future] = task
+
+                    results = {}
+                    for future in as_completed(futures):
+                        task = futures[future]
+                        task_id = task.get("id") or "?"
+                        try:
+                            response = future.result()
+                            results[task_id] = (task, response)
+                            self._update_task_status(task_id, "completed", None)
+                            if use_rich_parallel:
+                                self.ui.mark_subtask_complete(task_id, success=True)
+                        except Exception as exc:
+                            self._update_task_status(task_id, "failed", str(exc))
+                            if use_rich_parallel:
+                                self.ui.mark_subtask_complete(task_id, success=False)
+                            executor.shutdown(wait=False, cancel_futures=True)
+                            raise ExecutionError(f"Task {task_id} failed: {exc}")
+
+                # Sequential results summary - REMOVED during execution to avoid clutter
+                # Results are still saved in the 'results' dict for merge phase
+                # Only log simple completion markers in the footer
+                for task in tasks_in_group:
+                    task_id = task.get("id", "")
+                    self.ui.status(f"✓ {task_id} fertig.", "success")
+
+            if multi_pane_ui and multi_pane_ui.all_completed() and not keep_ui_open:
+                time.sleep(0.5)
+                multi_pane_ui.stop_rendering()
+
+            if use_rich_parallel and not keep_ui_open:
+                self.ui.status("Alle Gruppen erfolgreich abgeschlossen.", "success")
+                time.sleep(0.5)
+                self.ui.stop_parallel_view()
+
         finally:
             self._save_plan()
 
-        self.ui.status("Ausführungsphase abgeschlossen.", "success")
+        if not keep_ui_open:
+            self.ui.status("Ausführungsphase abgeschlossen.", "success")
 
     def _ensure_status_fields(self) -> None:
         for task in self.subtasks:
@@ -179,15 +229,15 @@ class ExecutionDispatcher:
         self.ui.status(f"📊 Subtask {task_id}: {title}", "info")
         self.ui.status(separator, "info")
 
-        # Show first 500 chars
-        display_text = response.strip()[:500]
-        if len(response) > 500:
+        # Show first 2000 chars (increased from 500)
+        display_text = response.strip()[:2000]
+        if len(response) > 2000:
             display_text += "\n... [weitere Ausgabe in Memory gespeichert]"
 
         print(display_text)
         self.ui.status(separator + "\n", "info")
 
-    def _run_subtask(self, task: Dict[str, Any]) -> None:
+    def _run_subtask(self, task: Dict[str, Any]) -> str:
         task_id = task.get("id", "?")
         agent_key = task.get("agent_key")
         engine = task.get("engine")
@@ -195,7 +245,17 @@ class ExecutionDispatcher:
 
         agent = self.agent_manager.get(agent_key)
         if agent is None:
-            raise ExecutionError(f"Agent '{agent_key}' nicht gefunden.")
+            # Fallback: Try 'default' or active agent instead of crashing
+            fallback_key = "default"
+            agent = self.agent_manager.get(fallback_key)
+            if agent is None and self.agent_manager.agents:
+                 # Last resort: first available agent
+                 agent = list(self.agent_manager.agents.values())[0]
+            
+            if agent:
+                self.ui.status(f"⚠️ Agent '{agent_key}' nicht gefunden. Nutze Fallback: '{agent.key}'", "warning")
+            else:
+                raise ExecutionError(f"Agent '{agent_key}' nicht gefunden und kein Fallback verfügbar.")
 
         context_hint = f"{objective}\n{task.get('notes', '')}".strip()
         history = self.memory_system.load_relevant_context(
@@ -207,21 +267,31 @@ class ExecutionDispatcher:
 
         self.ui.status(f"Subtask {task_id} starten ({task.get('title', objective)})", "info")
 
-        # LLM-basierte Engines (nutzen alle _invoke_llm mit verfügbaren Backends)
-        if engine in ("minimax", "anythingllm", "qnn", "cpu"):
-            response = self._invoke_llm(agent, prompt, history, task_id)
-        elif engine == "smolagent":
-            response = self._run_smolagent(task, agent, prompt, history, task_id)
-        else:
-            raise ExecutionError(f"Engine '{engine}' wird noch nicht unterstützt.")
+        try:
+            # LLM-basierte Engines (nutzen alle _invoke_llm mit verfügbaren Backends)
+            if engine in ("minimax", "anythingllm", "qnn", "cpu"):
+                response = self._invoke_llm(agent, prompt, history, task_id)
+            elif engine == "smolagent":
+                response = self._run_smolagent(task, agent, prompt, history, task_id)
+            else:
+                raise ExecutionError(f"Engine '{engine}' wird noch nicht unterstützt.")
 
-        # Show intermediate result in console
-        self._display_subtask_result(task_id, task.get('title', ''), response)
+            result_path = self.memory_system.save_conversation(agent, prompt, response)
+            if result_path:
+                task["result_path"] = str(result_path)
 
-        result_path = self.memory_system.save_conversation(agent, prompt, response)
-        if result_path:
-            task["result_path"] = str(result_path)
-        self.ui.status(f"Subtask {task_id} abgeschlossen.", "success")
+            # Mark pane as completed in Multi-Pane UI
+            if hasattr(self, 'multi_pane_ui') and self.multi_pane_ui is not None:
+                self.multi_pane_ui.complete_pane(task_id)
+
+            self.ui.status(f"Subtask {task_id} abgeschlossen.", "success")
+
+            return response
+        except Exception as exc:
+            # Mark pane as failed in Multi-Pane UI
+            if hasattr(self, 'multi_pane_ui') and self.multi_pane_ui is not None:
+                self.multi_pane_ui.fail_pane(task_id)
+            raise
 
     def _run_smolagent(
         self,
@@ -262,6 +332,7 @@ class ExecutionDispatcher:
                 tool_names=tool_names or None,
                 max_steps=max_steps,
                 return_full_result=True,
+                task_id=task_id, # Pass task_id here
             )
         except SmolAgentError as exc:
             raise ExecutionError(f"SmolAgent Fehler: {exc}") from exc
@@ -322,8 +393,17 @@ class ExecutionDispatcher:
                 if use_streaming:
                     chunks: list[str] = []
                     label = f"{self.backend_label}-S{task_id}"
+                    use_parallel_ui = hasattr(self.ui, 'add_thinking_chunk')
+                    use_multi_pane = hasattr(self, 'multi_pane_ui') and self.multi_pane_ui is not None
+
+                    # Think tag parsing state
+                    in_think_tag = False
+                    think_buffer = ""
+
                     try:
-                        self.ui.stream_prefix(label)
+                        if not use_parallel_ui and not use_multi_pane:
+                            self.ui.stream_prefix(label)
+
                         for chunk in self.llm_interface.stream_generate_response(
                             system_prompt=agent.system_prompt,
                             user_prompt=prompt,
@@ -333,8 +413,86 @@ class ExecutionDispatcher:
                         ):
                             if chunk:
                                 chunks.append(chunk)
-                                self.ui.streaming_chunk(chunk)
-                        print()
+
+                                # Route to Multi-Pane UI
+                                if use_multi_pane:
+                                    # Parse think tags and route to multi-pane
+                                    for char in chunk:
+                                        think_buffer += char
+
+                                        # Check for opening tag
+                                        if not in_think_tag and think_buffer.endswith('<think>'):
+                                            in_think_tag = True
+                                            think_buffer = ""
+                                            continue
+
+                                        # Check for closing tag
+                                        if in_think_tag and think_buffer.endswith('</think>'):
+                                            in_think_tag = False
+                                            think_buffer = ""
+                                            continue
+
+                                        # Send to multi-pane (non-thinking content)
+                                        if not in_think_tag:
+                                            if not think_buffer.startswith('<'):
+                                                # Accumulate line buffer and send complete lines
+                                                if char == '\n' or len(think_buffer) > 60:
+                                                    self.multi_pane_ui.update_pane(task_id, think_buffer.strip())
+                                                    think_buffer = ""
+                                            elif len(think_buffer) > 10:
+                                                # Not a think tag, send accumulated
+                                                if '\n' in think_buffer:
+                                                    lines = think_buffer.split('\n')
+                                                    for line in lines[:-1]:
+                                                        if line.strip():
+                                                            self.multi_pane_ui.update_pane(task_id, line.strip())
+                                                    think_buffer = lines[-1]
+
+                                # Route to Parallel UI (old system)
+                                elif use_parallel_ui:
+                                    # Parse think tags on the fly
+                                    for char in chunk:
+                                        think_buffer += char
+
+                                        # Check for opening tag
+                                        if not in_think_tag and think_buffer.endswith('<think>'):
+                                            in_think_tag = True
+                                            think_buffer = ""
+                                            continue
+
+                                        # Check for closing tag
+                                        if in_think_tag and think_buffer.endswith('</think>'):
+                                            in_think_tag = False
+                                            # Remove </think> from buffer
+                                            thinking_content = think_buffer[:-8]
+                                            if thinking_content:
+                                                self.ui.add_thinking_chunk(task_id, thinking_content)
+                                            think_buffer = ""
+                                            continue
+
+                                        # Send to appropriate stream
+                                        if in_think_tag:
+                                            # Accumulate in buffer for thinking
+                                            pass
+                                        else:
+                                            # Send to response stream (but not if it's part of <think>)
+                                            if not think_buffer.startswith('<'):
+                                                self.ui.add_response_chunk(task_id, char)
+                                                think_buffer = ""
+                                            elif len(think_buffer) > 10:
+                                                # Not a think tag, send accumulated
+                                                self.ui.add_response_chunk(task_id, think_buffer)
+                                                think_buffer = ""
+                                else:
+                                    # Standard streaming output
+                                    self.ui.streaming_chunk(chunk)
+
+                        # Flush remaining buffer to multi-pane
+                        if use_multi_pane and think_buffer.strip():
+                            self.multi_pane_ui.update_pane(task_id, think_buffer.strip())
+
+                        if not use_parallel_ui and not use_multi_pane:
+                            print()
                         return "".join(chunks)
                     except Exception as stream_exc:
                         self.ui.status(

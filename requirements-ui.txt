@@ -1,0 +1,5 @@
+# Optional UI Enhancements
+# Install with: pip install -r requirements-ui.txt
+
+# Rich - For parallel streaming UI
+rich>=13.7.0

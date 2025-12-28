@@ -1,4 +1,4 @@
-"""MiniMax-basierter Planner für SelfAI."""
+"""MiniMax-basierter Planner für SelfAI mit Identity Enforcement."""
 
 from __future__ import annotations
 
@@ -15,6 +15,8 @@ from selfai.core.planner_validator import (
     PlanValidationError,
     validate_plan_structure,
 )
+from selfai.core.think_parser import parse_think_tags
+from selfai.core.identity_enforcer import IDENTITY_CORE
 from selfai.tools.tool_registry import get_all_tool_schemas
 
 
@@ -39,6 +41,7 @@ class PlannerMinimaxInterface:
         timeout: float,
         max_tokens: int,
         headers: Dict[str, str] | None = None,
+        ui=None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -46,6 +49,7 @@ class PlannerMinimaxInterface:
         self.max_tokens = max_tokens
         self.generate_url = f"{self.base_url}/chat/completions"
         self.headers = headers or {}
+        self.ui = ui  # Optional UI for displaying think tags
 
     def healthcheck(self) -> None:
         """Prüft, ob die MiniMax API erreichbar ist."""
@@ -150,7 +154,18 @@ class PlannerMinimaxInterface:
 {tool_name_list}
                 - Verwende "engine": "minimax" für reine Text- oder Planungsaufgaben ohne Toolzugriff.
 
-                AIDER TOOL BEST PRACTICES (bei run_aider_task/run_aider_architect):
+                KRITISCH - TOOLS FÜR RICHTIGE AUFGABEN:
+                ⚠️ READ-ONLY Aufgaben (Fragen beantworten, Erklären, Analysieren):
+                   - Nutze NUR: list_selfai_files, read_selfai_code, search_selfai_code, read_project_file, search_project_files
+                   - NIEMALS: run_aider_task, run_openhands_task bei reinen Fragen!
+                   - Beispiel RICHTIG: "Wer bist du?" → read_selfai_code("core/identity_enforcer.py")
+                   - Beispiel FALSCH: "Wer bist du?" → run_aider_task (schreibt Code!)
+
+                ⚠️ WRITE/CODE-MODIFY Aufgaben (Code ändern, Features implementieren, Bugs fixen):
+                   - Nutze: run_aider_task, run_openhands_task
+                   - Beispiel: "Füge Logging hinzu" → run_aider_task
+
+                AIDER TOOL BEST PRACTICES (NUR wenn Code geändert werden soll!):
                 - Ein Task = Ein File = Eine Änderung! Für mehrere Files: mehrere parallele Subtasks erstellen
                 - Konkrete task_description mit Funktionsnamen (z.B. "Add try-except to init_db() in src/db.py")
                 - Nur 1 file im "files" Parameter! NIE mehrere Dateien kommasepariert
@@ -208,9 +223,11 @@ class PlannerMinimaxInterface:
         # Prompt erstellen
         prompt_content = self._build_prompt(goal, context)
 
-        # Chat Completions Format
+        # Chat Completions Format with Identity Enforcement
+        system_content = IDENTITY_CORE + "\n\n" + "Du bist ein DPPM-Planer für SelfAI. Antworte ausschließlich mit gültigem JSON im spezifizierten Schema."
+
         messages = [
-            {"role": "system", "content": "Du bist ein DPPM-Planer für SelfAI. Antworte ausschließlich mit gültigem JSON im spezifizierten Schema."},
+            {"role": "system", "content": system_content},
             {"role": "user", "content": prompt_content}
         ]
 
@@ -241,7 +258,7 @@ class PlannerMinimaxInterface:
                     if raw_response:
                         progress_callback(raw_response)
                     
-                    return self._parse_plan(raw_response, body_extra=body, context=context)
+                    return self._parse_plan(raw_response, goal=goal, body_extra=body, context=context)
                 else:
                     response = client.post(
                         self.generate_url,
@@ -251,11 +268,11 @@ class PlannerMinimaxInterface:
                     response.raise_for_status()
                     body = response.json()
                     raw_response = body.get("choices", [{}])[0].get("message", {}).get("content", "")
-                    
+
                     if not raw_response:
                         raise PlannerError(f"MiniMax-Response enthält kein 'content'-Feld: {body}")
-                    
-                    return self._parse_plan(raw_response, body_extra=body, context=context)
+
+                    return self._parse_plan(raw_response, goal=goal, body_extra=body, context=context)
         except httpx.TimeoutException as exc:
             raise PlannerError(
                 f"MiniMax antwortete nicht innerhalb von {self.timeout} Sekunden."
@@ -270,19 +287,21 @@ class PlannerMinimaxInterface:
         if not raw_response:
             raise PlannerError("MiniMax lieferte keine Daten.")
 
-        return self._parse_plan(raw_response, context=context)
+        return self._parse_plan(raw_response, goal=goal, context=context)
 
     def _parse_plan(
         self,
         raw_response: str,
+        goal: str | None = None,
         body_extra: Dict[str, Any] | None = None,
         context: PlannerContext | None = None,
     ) -> Dict[str, Any]:
         context = context or PlannerContext(agents=[], memory_summary="")
 
-        # 1. Strip <think> tags
-        cleaned = re.sub(r'<think>.*?</think>', '', raw_response, flags=re.DOTALL)
-        cleaned = cleaned.strip()
+        # 1. Parse and display think tags
+        cleaned, think_contents = parse_think_tags(raw_response)
+        if self.ui and think_contents:
+            self.ui.show_think_tags(think_contents)
 
         # 2. Try JSON parsing first
         try:
@@ -292,6 +311,13 @@ class PlannerMinimaxInterface:
             # Check if we still have a plan structure
             if "END_OF_PLAN" in cleaned:
                 cleaned = cleaned.split("END_OF_PLAN", 1)[0].strip()
+            
+            # Robust JSON extraction: Find first { and last }
+            start_idx = cleaned.find('{')
+            end_idx = cleaned.rfind('}')
+            
+            if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                cleaned = cleaned[start_idx : end_idx + 1]
             
             # Try to parse JSON
             plan_data = json.loads(cleaned)
@@ -318,32 +344,38 @@ class PlannerMinimaxInterface:
                     allowed_agent_keys=allowed_agents,
                     allowed_engines=DEFAULT_ENGINES,
                 )
-            except PlanValidationError as exc:
-                # If validation fails, try fallback plan
-                pass
-            else:
-                # JSON parsing and validation successful
+                # Validation successful - return plan immediately
                 return plan_data
-                
-        except (json.JSONDecodeError, PlanValidationError, Exception):
-            # JSON parsing failed, will try fallback
-            pass
+            except PlanValidationError as exc:
+                # Validation failed but JSON was valid - log and continue to fallback
+                print(f"⚠️ Plan validation warning: {exc}")
+                print(f"⚠️ Using fallback plan instead")
+                # Continue to fallback
+
+        except json.JSONDecodeError as exc:
+            # JSON parsing failed
+            print(f"⚠️ JSON parsing failed: {exc}")
+            # Continue to fallback
+        except Exception as exc:
+            # Other parsing errors
+            print(f"⚠️ Plan parsing error: {exc}")
+            # Continue to fallback
 
         # 3. FALLBACK: Create simple plan from response text
-        goal = "Unbekanntes Ziel"
-        if hasattr(context, 'memory_summary') and context.memory_summary:
-            goal = context.memory_summary[:100] + "..." if len(context.memory_summary) > 100 else context.memory_summary
+        fallback_goal = goal if goal else "Unbekanntes Ziel"
+        if not goal and hasattr(context, 'memory_summary') and context.memory_summary:
+            fallback_goal = context.memory_summary[:100] + "..." if len(context.memory_summary) > 100 else context.memory_summary
         
         # Extract potential information from the cleaned response
         response_text = cleaned[:500] if cleaned else "Keine Antwort verfügbar"
-        
+
         # Create fallback plan
         fallback_plan = {
             "subtasks": [
                 {
                     "id": "S1",
                     "title": "Anforderungen analysieren",
-                    "objective": f"Analysiere die Anforderung: {goal}",
+                    "objective": f"Analysiere die Anforderung: {fallback_goal}",
                     "agent_key": "code_helfer",
                     "engine": "minimax",
                     "parallel_group": 1,
@@ -353,7 +385,7 @@ class PlannerMinimaxInterface:
                 {
                     "id": "S2",
                     "title": "Lösung erarbeiten",
-                    "objective": f"Erarbeite eine Lösung für: {goal}",
+                    "objective": f"Erarbeite eine Lösung für: {fallback_goal}",
                     "agent_key": "code_helfer",
                     "engine": "minimax",
                     "parallel_group": 2,

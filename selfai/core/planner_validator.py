@@ -23,7 +23,7 @@ def _validate_string(value: Any, path: str, max_len: int = 160) -> None:
 
 
 DEFAULT_AGENT_KEYS = {"code_helfer", "research_assistant", "doc_scout", "projektmanager"}
-DEFAULT_ENGINES = {"anythingllm", "qnn", "cpu", "smolagent"}
+DEFAULT_ENGINES = {"anythingllm", "qnn", "cpu", "smolagent", "minimax"}
 
 
 def validate_plan_structure(

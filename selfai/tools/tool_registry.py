@@ -14,6 +14,16 @@ except ImportError:  # pragma: no cover - optional dependency
     SmolTool = None  # type: ignore
 
 from selfai.tools.aider_tool import run_aider_task, run_aider_architect
+from selfai.tools.openhands_tool import (
+    run_openhands_task,
+    run_openhands_architect,
+    compare_coding_tools
+)
+from selfai.tools.introspection_tools import (
+    ListSelfAIFilesTool,
+    ReadSelfAICodeTool,
+    SearchSelfAICodeTool,
+)
 
 
 @dataclass
@@ -715,6 +725,163 @@ register_tool(
     )
 )
 
+# --- OpenHands AI Coding Assistant Tools ---
+
+register_tool(
+    RegisteredTool(
+        name="run_openhands_task",
+        func=run_openhands_task,
+        schema={
+            "name": "run_openhands_task",
+            "description": "Execute autonomous coding task using OpenHands (formerly OpenDevin). Better than Aider for complex multi-file tasks, system-level changes, and autonomous debugging. Can explore codebase independently.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_description": {
+                        "type": "string",
+                        "description": "Detailed description of the coding task (e.g., 'Implement user authentication system with JWT tokens')",
+                    },
+                    "files": {
+                        "type": "string",
+                        "description": "Comma-separated list of files to focus on (optional, e.g., 'src/auth.py,tests/test_auth.py'). OpenHands can discover files autonomously if not specified.",
+                    },
+                    "model": {
+                        "type": "string",
+                        "description": "LLM model to use (default: openai/MiniMax-M2, alternatives: anthropic/claude-3-5-sonnet-20241022)",
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Maximum execution time in seconds (default: 300)",
+                    },
+                    "max_iterations": {
+                        "type": "integer",
+                        "description": "Max agent iterations for task completion (default: 10)",
+                    },
+                },
+                "required": ["task_description"],
+            },
+        },
+        output_type="string",
+    )
+)
+
+register_tool(
+    RegisteredTool(
+        name="run_openhands_architect",
+        func=run_openhands_architect,
+        schema={
+            "name": "run_openhands_architect",
+            "description": "Consult OpenHands for architectural analysis and design recommendations (read-only). Better than Aider architect for system-level architecture and comprehensive codebase analysis.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "design_question": {
+                        "type": "string",
+                        "description": "Architectural question or design problem (e.g., 'How should I design the microservices architecture?')",
+                    },
+                    "context_files": {
+                        "type": "string",
+                        "description": "Comma-separated list of files for context (optional, e.g., 'src/api/,src/models/')",
+                    },
+                    "model": {
+                        "type": "string",
+                        "description": "LLM model (default: anthropic/claude-3-5-sonnet-20241022 - best for architecture)",
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Maximum execution time in seconds (default: 180)",
+                    },
+                },
+                "required": ["design_question"],
+            },
+        },
+        output_type="string",
+    )
+)
+
+register_tool(
+    RegisteredTool(
+        name="compare_coding_tools",
+        func=compare_coding_tools,
+        schema={
+            "name": "compare_coding_tools",
+            "description": "Intelligently recommend whether to use Aider or OpenHands for a coding task based on complexity and requirements. Helps choose the most efficient tool.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_description": {
+                        "type": "string",
+                        "description": "Description of the coding task to be performed",
+                    },
+                    "complexity": {
+                        "type": "string",
+                        "description": "Estimated task complexity: 'simple', 'medium', or 'complex' (default: 'medium')",
+                    },
+                },
+                "required": ["task_description"],
+            },
+        },
+        output_type="string",
+    )
+)
+
+# --- Self-Inspection Tools (Introspection) ---
+
+# Register introspection tools as smolagents-compatible
+list_selfai_files_tool_instance = ListSelfAIFilesTool()
+read_selfai_code_tool_instance = ReadSelfAICodeTool()
+search_selfai_code_tool_instance = SearchSelfAICodeTool()
+
+register_tool(
+    RegisteredTool(
+        name="list_selfai_files",
+        func=list_selfai_files_tool_instance.forward,
+        schema={
+            "name": "list_selfai_files",
+            "description": list_selfai_files_tool_instance.description,
+            "parameters": {
+                "type": "object",
+                "properties": list_selfai_files_tool_instance.inputs,
+            },
+        },
+        output_type="string",
+    )
+)
+
+register_tool(
+    RegisteredTool(
+        name="read_selfai_code",
+        func=read_selfai_code_tool_instance.forward,
+        schema={
+            "name": "read_selfai_code",
+            "description": read_selfai_code_tool_instance.description,
+            "parameters": {
+                "type": "object",
+                "properties": read_selfai_code_tool_instance.inputs,
+                "required": ["file_path"],
+            },
+        },
+        output_type="string",
+    )
+)
+
+register_tool(
+    RegisteredTool(
+        name="search_selfai_code",
+        func=search_selfai_code_tool_instance.forward,
+        schema={
+            "name": "search_selfai_code",
+            "description": search_selfai_code_tool_instance.description,
+            "parameters": {
+                "type": "object",
+                "properties": search_selfai_code_tool_instance.inputs,
+                "required": ["pattern"],
+            },
+        },
+        output_type="string",
+    )
+)
+
 
 # --- Accessor Functions ---
 
@@ -737,3 +904,26 @@ def list_all_tools() -> List[Dict[str, str]]:
             "description": tool.schema.get("description", "No description available")
         })
     return sorted(tools, key=lambda x: x["name"])
+
+
+def get_tools_for_agent() -> List[Any]:
+    """
+    Get all registered tools converted to smolagents format.
+
+    Returns:
+        List of smolagents Tool instances ready for ToolCallingAgent
+
+    Raises:
+        ImportError: If smolagents is not installed
+    """
+    smol_tools = []
+    for tool in _TOOL_REGISTRY.values():
+        try:
+            smol_tool = tool.to_smol_tool()
+            smol_tools.append(smol_tool)
+        except Exception as e:
+            # Log but don't fail - skip problematic tools
+            print(f"Warning: Could not convert tool '{tool.name}' to smolagents format: {e}")
+            continue
+
+    return smol_tools

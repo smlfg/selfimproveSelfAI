@@ -1,0 +1,64 @@
+{
+  "subtasks": [
+    {
+      "id": "S1",
+      "title": "Einfache Mathe-Aufgabe",
+      "objective": "Berechne 15 + 27 und erkläre das Ergebnis",
+      "agent_key": "synthesis_expert",
+      "engine": "minimax",
+      "parallel_group": 1,
+      "depends_on": [],
+      "status": "completed",
+      "result_path": "/home/smlflg/AutoCoder/Selfai/SelfAi-NPU-AGENT/selfai/memory/general/main_20251226-003947.txt",
+      "error": null,
+      "notes": ""
+    },
+    {
+      "id": "S2",
+      "title": "Kurze Erklärung",
+      "objective": "Erkläre in 2-3 Sätzen was Python ist",
+      "agent_key": "synthesis_expert",
+      "engine": "minimax",
+      "parallel_group": 1,
+      "depends_on": [],
+      "status": "completed",
+      "result_path": "/home/smlflg/AutoCoder/Selfai/SelfAi-NPU-AGENT/selfai/memory/general/main_20251226-003948.txt",
+      "error": null,
+      "notes": ""
+    },
+    {
+      "id": "S3",
+      "title": "Liste erstellen",
+      "objective": "Nenne 3 beliebte Programmiersprachen",
+      "agent_key": "synthesis_expert",
+      "engine": "minimax",
+      "parallel_group": 1,
+      "depends_on": [],
+      "status": "completed",
+      "result_path": "/home/smlflg/AutoCoder/Selfai/SelfAi-NPU-AGENT/selfai/memory/general/main_20251226-003946.txt",
+      "error": null,
+      "notes": ""
+    }
+  ],
+  "merge": {
+    "strategy": "Kombiniere alle Ergebnisse zu einer Zusammenfassung",
+    "steps": [
+      {
+        "title": "Zusammenfassung erstellen",
+        "description": "Fasse alle Subtask-Ergebnisse zusammen",
+        "depends_on": [
+          "S1",
+          "S2",
+          "S3"
+        ]
+      }
+    ]
+  },
+  "metadata": {
+    "planner_provider": "manual",
+    "planner_model": "test",
+    "goal": "Simple Test Plan - Parallel Streaming",
+    "merge_agent": "synthesis_expert",
+    "created_at": "2025-01-21T12:00:00"
+  }
+}

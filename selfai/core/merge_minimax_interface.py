@@ -7,6 +7,8 @@ from typing import Dict, Iterator, Optional
 
 import httpx
 
+from selfai.core.think_parser import parse_think_tags, parse_think_tags_streaming
+
 
 class MergeMinimaxInterface:
     def __init__(
@@ -16,6 +18,7 @@ class MergeMinimaxInterface:
         timeout: float,
         max_tokens: int,
         headers: Optional[Dict[str, str]] = None,
+        ui=None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -23,6 +26,7 @@ class MergeMinimaxInterface:
         self.max_tokens = max_tokens
         self.headers = headers or {}
         self.generate_url = f"{self.base_url}/chat/completions"
+        self.ui = ui  # Optional UI for displaying think tags
 
     def _stream_request(self, payload: Dict[str, object]) -> Iterator[str]:
         with httpx.Client(timeout=self.timeout) as client:
@@ -118,4 +122,12 @@ class MergeMinimaxInterface:
             choices = data.get("choices", [])
             if not choices or not choices[0].get("message", {}).get("content"):
                 raise RuntimeError("MiniMax lieferte keine Antwort.")
-            return choices[0]["message"]["content"]
+
+            raw_content = choices[0]["message"]["content"]
+
+            # Parse and display think tags separately
+            clean_content, think_contents = parse_think_tags(raw_content)
+            if self.ui and think_contents:
+                self.ui.show_think_tags(think_contents)
+
+            return clean_content

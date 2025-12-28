@@ -5,7 +5,17 @@
 minimax:
   base_url: "https://api.minimax.chat/v1"  # MiniMax API endpoint
   model: "abab6.5s-chat"  # Model to use for completions
-  
+
   # Optional additional headers
   headers:
     # Example: "X-Custom-Header": "custom-value"
+
+# --- System Configuration ---
+system:
+  streaming_enabled: true           # Enable word-by-word output
+  stream_timeout: 60.0              # Streaming timeout in seconds
+
+  # Agent Mode (Tool-Calling) - EXPERIMENTAL!
+  enable_agent_mode: false          # Enable autonomous tool-calling agent (set to true to test)
+  agent_max_steps: 10               # Maximum tool-calling iterations
+  agent_verbose: false              # Enable verbose agent logging
