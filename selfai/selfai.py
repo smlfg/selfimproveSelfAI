@@ -38,6 +38,7 @@ from selfai.ui.ui_adapter import create_ui
 from selfai.tools.tool_registry import list_all_tools, get_tools_for_agent
 from selfai.core.token_limits import TokenLimits
 from selfai.core.selfai_agent import create_selfai_agent
+from selfai.core.custom_agent_loop import CustomAgentLoop
 from selfai.core.improvement_suggestions import (
     ImprovementManager,
     ImprovementProposal,
@@ -50,35 +51,37 @@ MERGE_STATE_FILENAME = "merge_state.json"
 # SAFETY: Critical files that /selfimprove must NEVER modify
 # These files are too risky - any bug here breaks the entire system
 SELFIMPROVE_PROTECTED_FILES = [
-    'selfai/selfai.py',  # Main orchestration - YOU ARE HERE!
-    'selfai/config_loader.py',  # Config system
-    'selfai/core/agent_manager.py',  # Agent loading
-    'selfai/tools/tool_registry.py',  # Tool system
+    "selfai/selfai.py",  # Main orchestration - YOU ARE HERE!
+    "selfai/config_loader.py",  # Config system
+    "selfai/core/agent_manager.py",  # Agent loading
+    "selfai/tools/tool_registry.py",  # Tool system
 ]
 
 # SAFETY: Files that need explicit user approval before modification
 SELFIMPROVE_SENSITIVE_FILES = [
-    'selfai/core/execution_dispatcher.py',  # Core execution
-    'selfai/core/planner_minimax_interface.py',  # Planning system
-    'selfai/core/merge_minimax_interface.py',  # Merge system
-    'selfai/core/memory_system.py',  # Memory system
+    "selfai/core/execution_dispatcher.py",  # Core execution
+    "selfai/core/planner_minimax_interface.py",  # Planning system
+    "selfai/core/merge_minimax_interface.py",  # Merge system
+    "selfai/core/memory_system.py",  # Memory system
 ]
 
 # SAFETY: Allowed file patterns for self-improvement
 SELFIMPROVE_ALLOWED_PATTERNS = [
-    'selfai/core/*_interface.py',  # LLM interfaces
-    'selfai/tools/*.py',  # Tool implementations
-    'selfai/ui/*.py',  # UI improvements
+    "selfai/core/*_interface.py",  # LLM interfaces
+    "selfai/tools/*.py",  # Tool implementations
+    "selfai/ui/*.py",  # UI improvements
 ]
 
 
 def _format_gigabytes(value_bytes: float) -> float:
-    return value_bytes / (1024 ** 3)
+    return value_bytes / (1024**3)
 
 
 def _show_system_resources(ui: TerminalUI) -> None:
     if psutil is None:
-        ui.status("Systemmonitor nicht verfügbar (psutil nicht installiert).", "warning")
+        ui.status(
+            "Systemmonitor nicht verfügbar (psutil nicht installiert).", "warning"
+        )
         return
 
     try:
@@ -102,7 +105,9 @@ def _show_system_resources(ui: TerminalUI) -> None:
     if swap and swap.total:
         swap_used = _format_gigabytes(swap.used)
         swap_total = _format_gigabytes(swap.total)
-        status_parts.append(f"Swap {swap_used:.1f}/{swap_total:.1f} GB ({swap.percent:.0f}%)")
+        status_parts.append(
+            f"Swap {swap_used:.1f}/{swap_total:.1f} GB ({swap.percent:.0f}%)"
+        )
 
     ui.status(" | ".join(status_parts), "info")
 
@@ -137,8 +142,12 @@ def _build_fallback_plan(goal_text: str, agent_key: str) -> dict[str, object]:
                 "title": "Analyse des Ziels",
                 "objective": f"Analysiere das Ziel mit Tools: {sanitized_goal}",
                 "agent_key": agent_key,
-                "engine": "smolagent", # Use tool-capable engine
-                "tools": ["list_selfai_files", "read_selfai_code", "search_selfai_code"],
+                "engine": "smolagent",  # Use tool-capable engine
+                "tools": [
+                    "list_selfai_files",
+                    "read_selfai_code",
+                    "search_selfai_code",
+                ],
                 "parallel_group": 1,
                 "depends_on": [],
                 "notes": "Automatisch erzeugter Fallback-Plan – nutze Tools zur Analyse.",
@@ -411,10 +420,10 @@ def _select_merge_agent_from_plan(
 def _create_provider_headers(provider) -> dict[str, str] | None:
     """Erstellt Headers für Provider basierend auf api_key_env."""
     headers = {}
-    if hasattr(provider, 'api_key_env') and provider.api_key_env:
-        api_key = os.getenv(provider.api_key_env, '')
+    if hasattr(provider, "api_key_env") and provider.api_key_env:
+        api_key = os.getenv(provider.api_key_env, "")
         if api_key:
-            headers['Authorization'] = f'Bearer {api_key}'
+            headers["Authorization"] = f"Bearer {api_key}"
     return headers if headers else None
 
 
@@ -597,7 +606,10 @@ def _execute_merge_phase(
 
     # Clean up merge response: remove <think> tags and meta-commentary
     import re
-    merge_response = re.sub(r'<think>.*?</think>', '', merge_response, flags=re.DOTALL).strip()
+
+    merge_response = re.sub(
+        r"<think>.*?</think>", "", merge_response, flags=re.DOTALL
+    ).strip()
 
     if not merge_response:
         ui.status("Merge-Backend lieferte nur <think> Tags, keinen Inhalt.", "warning")
@@ -690,15 +702,15 @@ def _select_merge_backend(
 def _load_minimax(config, ui: TerminalUI):
     """Lädt MiniMax als primäres Cloud-Backend."""
     try:
-        minimax_config = getattr(config, 'minimax_config', None)
+        minimax_config = getattr(config, "minimax_config", None)
         if not minimax_config or not minimax_config.enabled:
             return None, None
-            
+
         interface = MinimaxInterface(
             api_key=minimax_config.api_key,
             api_base=minimax_config.api_base,
             model=minimax_config.model,
-            ui=ui  # Pass UI for think tag display
+            ui=ui,  # Pass UI for think tag display
         )
         return interface, "MiniMax"
     except Exception as exc:
@@ -710,7 +722,9 @@ def _load_qnn(models_root: Path, ui: TerminalUI):
     try:
         from selfai.core.npu_llm_interface import NpuLLMInterface, find_qnn_models
     except ImportError:
-        ui.status("`npu_llm_interface` nicht gefunden. Überspringe QNN-Pfad.", "warning")
+        ui.status(
+            "`npu_llm_interface` nicht gefunden. Überspringe QNN-Pfad.", "warning"
+        )
         return None, None
 
     qnn_models = find_qnn_models(models_root)
@@ -751,12 +765,15 @@ def _check_file_safety(file_path: str, ui: TerminalUI) -> tuple[bool, str]:
     Returns: (allowed, reason)
     """
     # Normalisiere Pfad
-    file_path = file_path.replace('\\', '/')
+    file_path = file_path.replace("\\", "/")
 
     # CRITICAL: Geschützte Dateien dürfen NIE geändert werden
     for protected in SELFIMPROVE_PROTECTED_FILES:
         if file_path.endswith(protected) or protected in file_path:
-            return False, f"🚫 PROTECTED: {file_path} ist kritisch und darf nicht geändert werden!"
+            return (
+                False,
+                f"🚫 PROTECTED: {file_path} ist kritisch und darf nicht geändert werden!",
+            )
 
     # SENSITIVE: Benötigen explizite User-Approval
     for sensitive in SELFIMPROVE_SENSITIVE_FILES:
@@ -774,42 +791,56 @@ def _validate_selfimprove_safety(ui: TerminalUI) -> bool:
 
     # Prüfe pytest Verfügbarkeit
     try:
-        result = subprocess.run([sys.executable, "-m", "pytest", "--version"],
-                              capture_output=True, text=True)
+        result = subprocess.run(
+            [sys.executable, "-m", "pytest", "--version"],
+            capture_output=True,
+            text=True,
+        )
         if result.returncode != 0:
-            warnings.append("pytest nicht verfügbar - automatisierte Tests nicht möglich")
+            warnings.append(
+                "pytest nicht verfügbar - automatisierte Tests nicht möglich"
+            )
     except FileNotFoundError:
         warnings.append("pytest nicht installiert - automatisierte Tests nicht möglich")
-    
+
     # Prüfe Git Status
     try:
-        result = subprocess.run(["git", "status", "--porcelain"], 
-                              capture_output=True, text=True, cwd=project_root)
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            cwd=project_root,
+        )
         if result.stdout.strip():
-            warnings.append("Git Repository nicht sauber - uncommitted changes vorhanden")
+            warnings.append(
+                "Git Repository nicht sauber - uncommitted changes vorhanden"
+            )
     except FileNotFoundError:
         warnings.append("Git nicht verfügbar - Versionskontrolle nicht möglich")
     except Exception:
         warnings.append("Git Status konnte nicht geprüft werden")
-    
+
     # Prüfe Aider Verfügbarkeit
     try:
-        result = subprocess.run(["aider", "--version"], 
-                              capture_output=True, text=True)
+        result = subprocess.run(["aider", "--version"], capture_output=True, text=True)
         if result.returncode != 0:
-            warnings.append("Aider nicht verfügbar - automatische Code-Änderungen nicht möglich")
+            warnings.append(
+                "Aider nicht verfügbar - automatische Code-Änderungen nicht möglich"
+            )
     except FileNotFoundError:
-        warnings.append("Aider nicht installiert - automatische Code-Änderungen nicht möglich")
-    
+        warnings.append(
+            "Aider nicht installiert - automatische Code-Änderungen nicht möglich"
+        )
+
     if warnings:
         ui.status("SICHERHEITSWARNUNGEN für Self-Improvement:", "warning")
         for warning in warnings:
             ui.status(f"- {warning}", "warning")
-        
+
         if not ui.confirm("Trotzdem fortfahren?", default_yes=False):
             ui.status("Self-Improvement abgebrochen.", "info")
             return False
-    
+
     return True
 
 
@@ -817,12 +848,7 @@ def _analyze_selfai_code(ui: TerminalUI) -> dict[str, str]:
     """Analysiert SelfAI Code-Struktur und sammelt alle Python-Dateien."""
     ui.status("Analysiere SelfAI Code-Struktur...", "info")
 
-    code_analysis = {
-        "files": [],
-        "total_files": 0,
-        "total_lines": 0,
-        "modules": []
-    }
+    code_analysis = {"files": [], "total_files": 0, "total_lines": 0, "modules": []}
 
     # FIX: project_root IST bereits selfai/, nicht parent davon
     selfai_dir = project_root  # Direkt verwenden!
@@ -836,28 +862,29 @@ def _analyze_selfai_code(ui: TerminalUI) -> dict[str, str]:
             relative_path = py_file.relative_to(project_root)
             content = py_file.read_text(encoding="utf-8")
             lines = len(content.splitlines())
-            
-            code_analysis["files"].append({
-                "path": str(relative_path),
-                "lines": lines,
-                "size": len(content)
-            })
+
+            code_analysis["files"].append(
+                {"path": str(relative_path), "lines": lines, "size": len(content)}
+            )
             code_analysis["total_files"] += 1
             code_analysis["total_lines"] += lines
-            
+
             # Extrahiere Modul-Informationen
             if "__init__.py" in str(py_file):
                 module_path = str(relative_path.parent).replace("/", ".")
                 if module_path not in code_analysis["modules"]:
                     code_analysis["modules"].append(module_path)
-                    
+
         except Exception as exc:
             ui.status(f"Fehler beim Lesen von {py_file}: {exc}", "warning")
-    
+
     # Sortiere Dateien nach Pfad
     code_analysis["files"].sort(key=lambda x: x["path"])
-    
-    ui.status(f"Code-Analyse abgeschlossen: {code_analysis['total_files']} Dateien, {code_analysis['total_lines']} Zeilen", "success")
+
+    ui.status(
+        f"Code-Analyse abgeschlossen: {code_analysis['total_files']} Dateien, {code_analysis['total_lines']} Zeilen",
+        "success",
+    )
     return code_analysis
 
 
@@ -872,40 +899,41 @@ def _handle_selfimprove(
 ) -> None:
     """
     Behandelt den /selfimprove Command für Selbst-Optimierung (V2 Proposal System).
-    
+
     Flow:
     1. Analyse (Read-Only) durch SelfImprovementEngine
     2. Präsentation von Vorschlägen
     3. Auswahl durch User
     4. Plan-Erstellung und Ausführung
     """
-    
+
     if not goal.strip():
-        ui.status("Bitte ein Ziel für Self-Improvement angeben: /selfimprove <ziel>", "warning")
+        ui.status(
+            "Bitte ein Ziel für Self-Improvement angeben: /selfimprove <ziel>",
+            "warning",
+        )
         return
-    
+
     # 1. Imports für V2
     from selfai.core.self_improvement_engine import SelfImprovementEngine
     from selfai.core.improvement_suggestions import ImprovementManager
     from pathlib import Path
-    
+
     # Safety-Checks
     if not _validate_selfimprove_safety(ui):
         return
 
     # 2. Analyse Phase (Read-Only)
     ui.status(f"🔍 Starte Analyse für Ziel: {ui.colorize(goal, 'cyan')}", "info")
-    
+
     # Get primary LLM for analysis
     primary_backend = execution_backends[0]
     analysis_llm = primary_backend.get("interface")
-    
+
     engine = SelfImprovementEngine(
-        project_root=Path("."),
-        llm_interface=analysis_llm,
-        ui=ui
+        project_root=Path("."), llm_interface=analysis_llm, ui=ui
     )
-    
+
     # Generate proposals
     try:
         proposals = engine.generate_proposals(goal)
@@ -921,12 +949,13 @@ def _handle_selfimprove(
     print("\n" + "=" * 60)
     print(f"  📋 VERBESSERUNGSVORSCHLÄGE FÜR: {goal}")
     print("=" * 60 + "\n")
-    
+
     for p in proposals:
         # Determine color based on priority
         color = "green" if p.priority == "low" else "yellow"
-        if p.priority == "high": color = "red"
-        
+        if p.priority == "high":
+            color = "red"
+
         print(f"  {ui.colorize(f'[{p.id}] {p.title}', color)}")
         print(f"      {p.description}")
         print(f"      Files: {', '.join(p.files[:3])}")
@@ -935,21 +964,21 @@ def _handle_selfimprove(
 
     print("=" * 60)
     print(f"Wähle Optionen (z.B. '1', '1,3', 'all') oder 'q' zum Abbrechen.")
-    
+
     # 4. Auswahl-Phase
     selection = input(ui.colorize("\nDeine Wahl: ", "cyan")).strip().lower()
-    
-    if selection in ['q', 'quit', 'abort', 'exit']:
+
+    if selection in ["q", "quit", "abort", "exit"]:
         ui.status("Abgebrochen.", "info")
         return
 
     selected_proposals = []
-    if selection == 'all':
+    if selection == "all":
         selected_proposals = proposals
     else:
         # Parse IDs "1, 2, 3"
         try:
-            ids = [int(s.strip()) for s in selection.split(',') if s.strip().isdigit()]
+            ids = [int(s.strip()) for s in selection.split(",") if s.strip().isdigit()]
             selected_proposals = [p for p in proposals if p.id in ids]
         except ValueError:
             ui.status("Ungültige Eingabe.", "error")
@@ -961,44 +990,55 @@ def _handle_selfimprove(
 
     # 5. Planungs & Ausführungs-Phase
     ui.status(f"Erstelle Plan für {len(selected_proposals)} Improvements...", "info")
-    
+
     # Sammle Details für den Planner
     tasks_description = ""
     for p in selected_proposals:
         tasks_description += f"\nIMPROVEMENT {p.id}: {p.title}\n"
         tasks_description += f"Description: {p.description}\n"
         tasks_description += f"Files: {', '.join(p.files)}\n"
-        tasks_description += "Steps:\n" + "\n".join([f"- {s}" for s in p.implementation_steps]) + "\n"
+        tasks_description += (
+            "Steps:\n" + "\n".join([f"- {s}" for s in p.implementation_steps]) + "\n"
+        )
 
     # Erstelle Plan via Planner Interface
     planner_goal = f"Implementiere folgende Self-Improvements:\n{tasks_description}"
-    
+
     # Get available agent
     available_agents = agent_manager.list_agents()
-    default_agent = agent_manager.active_agent if agent_manager.active_agent else available_agents[0]
-    
+    default_agent = (
+        agent_manager.active_agent
+        if agent_manager.active_agent
+        else available_agents[0]
+    )
+
     try:
         plan_data = planner_interface.plan(
             planner_goal,
             PlannerContext(
-                agents=[{"key": default_agent.key, "display_name": default_agent.display_name}],
-                memory_summary=f"Selected {len(selected_proposals)} improvements for implementation."
-            )
+                agents=[
+                    {
+                        "key": default_agent.key,
+                        "display_name": default_agent.display_name,
+                    }
+                ],
+                memory_summary=f"Selected {len(selected_proposals)} improvements for implementation.",
+            ),
         )
-        
+
         # Zeige Plan
         ui.show_plan(plan_data)
-        
+
         if not ui.confirm_plan():
             ui.status("Plan verworfen.", "warning")
             return
-            
+
         # Speichere Plan
         plan_path = memory_system.save_plan(f"Self-Improve: {goal[:30]}", plan_data)
-        
+
         if not ui.confirm_execution():
             return
-            
+
         # Ausführung
         dispatcher = ExecutionDispatcher(
             plan_path=plan_path,
@@ -1012,7 +1052,7 @@ def _handle_selfimprove(
             max_output_tokens=4096,
         )
         dispatcher.run()
-        
+
         ui.status("✅ Self-Improvement Subtasks ausgeführt!", "success")
 
         # Merge Phase (optional, but good for summary)
@@ -1027,7 +1067,7 @@ def _handle_selfimprove(
                 "name": "selfimprove_merge",
                 "model": "selfimprove",
             }
-            
+
             _execute_merge_phase(
                 plan_path,
                 merge_backend=merge_backend,
@@ -1071,7 +1111,6 @@ def main():
 
     llm_interface = None
     backend_label = None
-    selfai_agent = None  # Tool-calling agent (initialized on first use)
     models_root = project_root.parent / "models"
 
     config = None
@@ -1088,9 +1127,7 @@ def main():
     try:
         config = load_configuration()
         ui.status("Konfiguration geladen.", "success")
-        streaming_enabled = bool(
-            getattr(config.system, "streaming_enabled", False)
-        )
+        streaming_enabled = bool(getattr(config.system, "streaming_enabled", False))
         planner_cfg = getattr(config, "planner", None)
         merge_cfg = getattr(config, "merge", None)
     except (FileNotFoundError, ValueError) as exc:
@@ -1149,8 +1186,11 @@ def main():
     # Set primary interface to first available backend (MiniMax preferred)
     llm_interface = execution_backends[0]["interface"]
     backend_label = execution_backends[0].get("label") or "Plan"
-    
-    ui.status(f"Primäres LLM-Backend: {backend_label}, Verfügbare Backends: {', '.join([backend['name'] for backend in execution_backends])}", "success")
+
+    ui.status(
+        f"Primäres LLM-Backend: {backend_label}, Verfügbare Backends: {', '.join([backend['name'] for backend in execution_backends])}",
+        "success",
+    )
 
     # Load tools
     available_tools = list_all_tools()
@@ -1160,21 +1200,35 @@ def main():
     tools_gen_dir = project_root / "tools" / "generated"
     if tools_gen_dir.exists():
         generated_tools = list(tools_gen_dir.glob("*.py"))
-        generated_count = sum(1 for f in generated_tools if f.name != "__init__.py" and not f.name.startswith("_"))
+        generated_count = sum(
+            1
+            for f in generated_tools
+            if f.name != "__init__.py" and not f.name.startswith("_")
+        )
         if generated_count > 0:
-            ui.status(f"Found {generated_count} generated tool(s) in tools/generated/", "info")
-            ui.status("⚠️  Generated tools will be available after restart or use /toolcreate to create new ones", "info")
+            ui.status(
+                f"Found {generated_count} generated tool(s) in tools/generated/", "info"
+            )
+            ui.status(
+                "⚠️  Generated tools will be available after restart or use /toolcreate to create new ones",
+                "info",
+            )
 
     # FIX: Planner Provider Loading mit korrekten Headers und Type-based Selection
     active_planner_interface = None
     if planner_cfg and planner_cfg.enabled:
-        ui.status(f"🔧 Lade Planner-Provider... (Anzahl: {len(planner_cfg.providers)})", "info")
+        ui.status(
+            f"🔧 Lade Planner-Provider... (Anzahl: {len(planner_cfg.providers)})",
+            "info",
+        )
         ui.status(f"   DEBUG: planner_cfg.enabled = {planner_cfg.enabled}", "info")
         for provider in planner_cfg.providers:
-            ui.status(f"   DEBUG: Versuche Provider '{provider.name}' zu laden...", "info")
+            ui.status(
+                f"   DEBUG: Versuche Provider '{provider.name}' zu laden...", "info"
+            )
             try:
                 headers = _create_provider_headers(provider)
-                
+
                 # Wähle Interface basierend auf provider.type
                 if provider.type == "minimax":
                     interface = PlannerMinimaxInterface(
@@ -1195,7 +1249,7 @@ def main():
                     )
                 else:
                     raise ValueError(f"Unknown planner type: {provider.type}")
-                
+
                 planner_providers[provider.name] = {
                     "type": provider.type,
                     "interface": interface,
@@ -1205,17 +1259,18 @@ def main():
                     "timeout": provider.timeout,
                 }
                 planner_provider_order.append(provider.name)
-                
+
                 # Setze erstes Interface als aktives
                 if active_planner_interface is None:
                     active_planner_interface = interface
-                
+
                 ui.status(
                     f"Planner-Provider '{provider.name}' ({provider.type}) aktiv.",
                     "info",
                 )
             except Exception as exc:
                 import traceback
+
                 ui.status(
                     f"Planner-Provider '{provider.name}' Fehler: {exc}",
                     "warning",
@@ -1229,11 +1284,11 @@ def main():
             active_planner_interface = planner_providers[stored_provider]["interface"]
         else:
             active_planner_provider = planner_provider_order[0]
-            active_planner_interface = planner_providers[active_planner_provider]["interface"]
+            active_planner_interface = planner_providers[active_planner_provider][
+                "interface"
+            ]
             _save_active_planner(memory_system, active_planner_provider)
-        ui.status(
-            f"Aktiver Planner-Provider: {active_planner_provider}", "info"
-        )
+        ui.status(f"Aktiver Planner-Provider: {active_planner_provider}", "info")
     else:
         ui.status("Kein Planner-Provider verfügbar.", "warning")
 
@@ -1242,7 +1297,7 @@ def main():
         for provider in merge_cfg.providers:
             try:
                 headers = _create_provider_headers(provider)
-                
+
                 # Wähle Interface basierend auf provider.type
                 if provider.type == "minimax":
                     interface = MergeMinimaxInterface(
@@ -1263,7 +1318,7 @@ def main():
                     )
                 else:
                     raise ValueError(f"Unknown merge type: {provider.type}")
-                
+
                 merge_providers[provider.name] = {
                     "type": provider.type,
                     "interface": interface,
@@ -1290,9 +1345,7 @@ def main():
         else:
             active_merge_provider = merge_provider_order[0]
             _save_active_merge(memory_system, active_merge_provider)
-        ui.status(
-            f"Aktiver Merge-Provider: {active_merge_provider}", "info"
-        )
+        ui.status(f"Aktiver Merge-Provider: {active_merge_provider}", "info")
     else:
         ui.status("Kein zusätzlicher Merge-Provider konfiguriert.", "info")
 
@@ -1317,9 +1370,7 @@ def main():
             ui.status(f"Fehler beim Setzen des Standard-Agenten: {exc}", "error")
             return
 
-    ui.status(
-        f"Aktiver Agent: {agent_manager.active_agent.display_name}", "success"
-    )
+    ui.status(f"Aktiver Agent: {agent_manager.active_agent.display_name}", "success")
     ui.list_agents(
         agent_manager.agents,
         active_key=agent_manager.active_agent.key,
@@ -1343,7 +1394,10 @@ def main():
     ui.status(command_hint, "info")
 
     # Show current context window
-    ui.status(f"📅 Context Window: {memory_system.context_window_minutes} Minuten (nur Files aus aktueller Session)", "info")
+    ui.status(
+        f"📅 Context Window: {memory_system.context_window_minutes} Minuten (nur Files aus aktueller Session)",
+        "info",
+    )
 
     active_chat_backend_index = 0
 
@@ -1354,7 +1408,9 @@ def main():
         user_prompt: str,
         history_messages,
     ) -> tuple[str, bool]:
-        use_stream = streaming_enabled and hasattr(interface, "stream_generate_response")
+        use_stream = streaming_enabled and hasattr(
+            interface, "stream_generate_response"
+        )
         if use_stream:
             chunks: list[str] = []
             first_chunk = True
@@ -1397,6 +1453,9 @@ def main():
         except Exception as exc:  # pylint: disable=broad-except
             raise RuntimeError(exc) from exc
 
+    # Initialize agent variable before loop (prevents UnboundLocalError)
+    selfai_agent = None
+
     while True:
         user_input = input("\nDu: ").strip()
         if not user_input:
@@ -1407,7 +1466,7 @@ def main():
             break
 
         # NEU: /tokens Command - Show/Modify Token Limits
-        if user_input.lower().startswith('/tokens'):
+        if user_input.lower().startswith("/tokens"):
             parts = user_input.split()
 
             if len(parts) == 1:
@@ -1415,11 +1474,23 @@ def main():
                 ui.status(str(token_limits), "info")
                 ui.status("\n💡 Available commands:", "info")
                 ui.status("  /tokens extreme       - Set all limits to 64000", "info")
-                ui.status("  /tokens conservative  - Set all limits to conservative (fast, cheap)", "info")
-                ui.status("  /tokens balanced      - Set all limits to balanced (default)", "info")
-                ui.status("  /tokens generous      - Set all limits to generous (high quality)", "info")
+                ui.status(
+                    "  /tokens conservative  - Set all limits to conservative (fast, cheap)",
+                    "info",
+                )
+                ui.status(
+                    "  /tokens balanced      - Set all limits to balanced (default)",
+                    "info",
+                )
+                ui.status(
+                    "  /tokens generous      - Set all limits to generous (high quality)",
+                    "info",
+                )
                 ui.status("  /tokens set <type> <value> - Set specific limit", "info")
-                ui.status("    Types: planner, execution, merge, tool_creation, error_correction, selfimprove, chat", "info")
+                ui.status(
+                    "    Types: planner, execution, merge, tool_creation, error_correction, selfimprove, chat",
+                    "info",
+                )
                 continue
 
             subcommand = parts[1].lower()
@@ -1432,7 +1503,10 @@ def main():
 
             if subcommand == "conservative":
                 token_limits.set_conservative()
-                ui.status("💰 Conservative Mode: Token limits optimized for speed & cost", "success")
+                ui.status(
+                    "💰 Conservative Mode: Token limits optimized for speed & cost",
+                    "success",
+                )
                 ui.status(str(token_limits), "info")
                 continue
 
@@ -1444,7 +1518,9 @@ def main():
 
             if subcommand == "generous":
                 token_limits.set_generous()
-                ui.status("✨ Generous Mode: Token limits set for high quality", "success")
+                ui.status(
+                    "✨ Generous Mode: Token limits set for high quality", "success"
+                )
                 ui.status(str(token_limits), "info")
                 continue
 
@@ -1477,19 +1553,24 @@ def main():
                     ui.status("Invalid value. Must be an integer.", "error")
                 continue
 
-            ui.status("Usage: /tokens [extreme|conservative|balanced|generous|set <type> <value>]", "warning")
+            ui.status(
+                "Usage: /tokens [extreme|conservative|balanced|generous|set <type> <value>]",
+                "warning",
+            )
             continue
 
         # NEU: /extreme Command - Shortcut for /tokens extreme
-        if user_input.lower() == '/extreme':
+        if user_input.lower() == "/extreme":
             token_limits.set_extreme()
             ui.status("🚀 EXTREME MODE ACTIVATED!", "success")
-            ui.status("All token limits set to 64000 - SelfAI fully unleashed!", "success")
+            ui.status(
+                "All token limits set to 64000 - SelfAI fully unleashed!", "success"
+            )
             ui.status(str(token_limits), "info")
             continue
 
         # NEU: /yolo Command - Auto-accept everything
-        if user_input.lower() == '/yolo':
+        if user_input.lower() == "/yolo":
             if ui.is_yolo_mode():
                 ui.disable_yolo_mode()
             else:
@@ -1497,23 +1578,39 @@ def main():
             continue
 
         # NEU: /context Command - Control Context Window
-        if user_input.lower().startswith('/context'):
+        if user_input.lower().startswith("/context"):
             parts = user_input.split()
 
             if len(parts) == 1:
                 # Show current settings
                 ui.status(f"📅 Context Window Settings:", "info")
-                ui.status(f"  • Window: {memory_system.context_window_minutes} Minuten", "info")
-                ui.status(f"  • Session Start: {memory_system.session_start.strftime('%Y-%m-%d %H:%M:%S')}", "info")
+                ui.status(
+                    f"  • Window: {memory_system.context_window_minutes} Minuten",
+                    "info",
+                )
+                ui.status(
+                    f"  • Session Start: {memory_system.session_start.strftime('%Y-%m-%d %H:%M:%S')}",
+                    "info",
+                )
 
                 import time
-                session_age = (time.time() - memory_system.session_start.timestamp()) / 60
+
+                session_age = (
+                    time.time() - memory_system.session_start.timestamp()
+                ) / 60
                 ui.status(f"  • Session Age: {session_age:.1f} Minuten", "info")
 
                 ui.status("\n💡 Available commands:", "info")
-                ui.status("  /context <minutes>  - Set context window (e.g., /context 15)", "info")
-                ui.status("  /context reset      - Reset session (clear context)", "info")
-                ui.status("  /context unlimited  - Load all history (no time filter)", "info")
+                ui.status(
+                    "  /context <minutes>  - Set context window (e.g., /context 15)",
+                    "info",
+                )
+                ui.status(
+                    "  /context reset      - Reset session (clear context)", "info"
+                )
+                ui.status(
+                    "  /context unlimited  - Load all history (no time filter)", "info"
+                )
                 continue
 
             subcommand = parts[1].lower()
@@ -1521,13 +1618,21 @@ def main():
             if subcommand == "reset":
                 memory_system.session_start = datetime.now()
                 ui.status("🔄 Session reset! Context cleared.", "success")
-                ui.status(f"New session started at {memory_system.session_start.strftime('%H:%M:%S')}", "info")
+                ui.status(
+                    f"New session started at {memory_system.session_start.strftime('%H:%M:%S')}",
+                    "info",
+                )
                 continue
 
             if subcommand == "unlimited":
                 memory_system.context_window_minutes = 99999  # Very large number
-                ui.status("♾️  Context Window: UNLIMITED (all history loaded)", "warning")
-                ui.status("This may cause context pollution! Use /context reset to clear.", "warning")
+                ui.status(
+                    "♾️  Context Window: UNLIMITED (all history loaded)", "warning"
+                )
+                ui.status(
+                    "This may cause context pollution! Use /context reset to clear.",
+                    "warning",
+                )
                 continue
 
             # Try to parse as minutes
@@ -1537,7 +1642,9 @@ def main():
                     ui.status("Context window must be at least 1 minute.", "error")
                     continue
                 if minutes > 1440:  # 24 hours
-                    ui.status("Context window cannot exceed 1440 minutes (24 hours).", "error")
+                    ui.status(
+                        "Context window cannot exceed 1440 minutes (24 hours).", "error"
+                    )
                     continue
 
                 memory_system.context_window_minutes = minutes
@@ -1548,12 +1655,14 @@ def main():
             continue
 
         # NEU: /selfimprove Command
-        if user_input.lower().startswith('/selfimprove'):
+        if user_input.lower().startswith("/selfimprove"):
             if not active_planner_interface:
-                ui.status("Kein Planner-Interface verfügbar für Self-Improvement.", "warning")
+                ui.status(
+                    "Kein Planner-Interface verfügbar für Self-Improvement.", "warning"
+                )
                 continue
-                
-            goal = user_input[len('/selfimprove'):].strip()
+
+            goal = user_input[len("/selfimprove") :].strip()
             _handle_selfimprove(
                 goal=goal,
                 agent_manager=agent_manager,
@@ -1566,23 +1675,30 @@ def main():
             continue
 
         # NEU: /toolcreate Command
-        if user_input.lower().startswith('/toolcreate'):
+        if user_input.lower().startswith("/toolcreate"):
             parts = user_input.split(maxsplit=2)
             if len(parts) < 3:
                 ui.status("Usage: /toolcreate <tool_name> <description>", "warning")
-                ui.status("Example: /toolcreate calculate_fibonacci 'Calculate fibonacci numbers'", "info")
+                ui.status(
+                    "Example: /toolcreate calculate_fibonacci 'Calculate fibonacci numbers'",
+                    "info",
+                )
                 continue
 
             tool_name = parts[1].strip()
-            tool_description = parts[2].strip().strip('"\'')
+            tool_description = parts[2].strip().strip("\"'")
 
             # Validate tool name
-            if not tool_name.replace('_', '').isalnum():
-                ui.status(f"Invalid tool name '{tool_name}'. Use alphanumeric and underscore only.", "error")
+            if not tool_name.replace("_", "").isalnum():
+                ui.status(
+                    f"Invalid tool name '{tool_name}'. Use alphanumeric and underscore only.",
+                    "error",
+                )
                 continue
 
             # Check if tool exists
             from selfai.tools.tool_registry import get_tool
+
             if get_tool(tool_name):
                 ui.status(f"Tool '{tool_name}' already exists!", "warning")
                 if not ui.confirm("Overwrite existing tool?", default_yes=False):
@@ -1618,17 +1734,17 @@ Output ONLY the Python code, no markdown, no explanations."""
                     system_prompt="You are a Python code generator. Output only valid Python code.",
                     user_prompt=tool_generation_prompt,
                     history=[],
-                    max_output_tokens=token_limits.tool_creation_max_tokens
+                    max_output_tokens=token_limits.tool_creation_max_tokens,
                 )
 
                 # Clean up code (remove markdown if present)
                 generated_code = generated_code.strip()
-                if generated_code.startswith('```python'):
-                    generated_code = '\n'.join(generated_code.split('\n')[1:])
-                if generated_code.startswith('```'):
-                    generated_code = '\n'.join(generated_code.split('\n')[1:])
-                if generated_code.endswith('```'):
-                    generated_code = '\n'.join(generated_code.split('\n')[:-1])
+                if generated_code.startswith("```python"):
+                    generated_code = "\n".join(generated_code.split("\n")[1:])
+                if generated_code.startswith("```"):
+                    generated_code = "\n".join(generated_code.split("\n")[1:])
+                if generated_code.endswith("```"):
+                    generated_code = "\n".join(generated_code.split("\n")[:-1])
                 generated_code = generated_code.strip()
 
                 # Save to generated tools directory
@@ -1638,7 +1754,10 @@ Output ONLY the Python code, no markdown, no explanations."""
                 tool_file = tools_gen_dir / f"{tool_name}.py"
                 tool_file.write_text(generated_code, encoding="utf-8")
 
-                ui.status(f"✓ Tool code saved to: {tool_file.relative_to(project_root)}", "success")
+                ui.status(
+                    f"✓ Tool code saved to: {tool_file.relative_to(project_root)}",
+                    "success",
+                )
                 ui.status(f"✓ Tool '{tool_name}' created successfully!", "success")
                 ui.status("⚠️  Restart SelfAI to load the new tool", "warning")
 
@@ -1648,7 +1767,7 @@ Output ONLY the Python code, no markdown, no explanations."""
             continue
 
         # NEU: /errorcorrection Command
-        if user_input.lower().startswith('/errorcorrection'):
+        if user_input.lower().startswith("/errorcorrection"):
             from selfai.core.error_analyzer import ErrorAnalyzer, ErrorSeverity
             from selfai.core.fix_generator import FixGenerator
 
@@ -1686,27 +1805,37 @@ Output ONLY the Python code, no markdown, no explanations."""
 
             ui.status(f"\n🔝 Top {len(top_patterns)} Error Patterns:", "info")
             for idx, pattern in enumerate(top_patterns, 1):
-                severity_marker = "🔴" if pattern.examples[0].severity == ErrorSeverity.CRITICAL else "🟡"
+                severity_marker = (
+                    "🔴"
+                    if pattern.examples[0].severity == ErrorSeverity.CRITICAL
+                    else "🟡"
+                )
                 ui.status(
                     f"{idx}. {severity_marker} {pattern.error_type} ({pattern.occurrences}x)",
-                    "info"
+                    "info",
                 )
                 if pattern.examples:
                     ex = pattern.examples[0]
                     if ex.file_path:
-                        ui.status(f"   Location: {ex.file_path}:{ex.line_number or '?'}", "info")
+                        ui.status(
+                            f"   Location: {ex.file_path}:{ex.line_number or '?'}",
+                            "info",
+                        )
                     ui.status(f"   Message: {ex.message[:80]}...", "info")
 
             # Ask user which error to fix
-            ui.status("\nWhich error should I analyze? (Enter number or 'all' or 'skip')", "info")
+            ui.status(
+                "\nWhich error should I analyze? (Enter number or 'all' or 'skip')",
+                "info",
+            )
             choice_input = input("Choice: ").strip().lower()
 
-            if choice_input == 'skip':
+            if choice_input == "skip":
                 ui.status("Error correction skipped.", "info")
                 continue
 
             patterns_to_analyze = []
-            if choice_input == 'all':
+            if choice_input == "all":
                 patterns_to_analyze = top_patterns
             else:
                 try:
@@ -1723,8 +1852,7 @@ Output ONLY the Python code, no markdown, no explanations."""
             # Analyze each selected error
             primary_backend = execution_backends[0]
             fix_gen = FixGenerator(
-                llm_interface=primary_backend["interface"],
-                project_root=project_root
+                llm_interface=primary_backend["interface"], project_root=project_root
             )
 
             for pattern in patterns_to_analyze:
@@ -1744,26 +1872,42 @@ Output ONLY the Python code, no markdown, no explanations."""
                 # Show fix options
                 ui.status(f"\n🛠️  Fix Options:", "info")
                 for opt in fix_plan.options:
-                    risk_emoji = {"low": "🟢", "medium": "🟡", "high": "🔴", "critical": "⛔"}
+                    risk_emoji = {
+                        "low": "🟢",
+                        "medium": "🟡",
+                        "high": "🔴",
+                        "critical": "⛔",
+                    }
                     ui.status(
                         f"\n[{opt.option_id}] {opt.title} ({opt.estimated_time} min)",
-                        "info"
+                        "info",
                     )
                     ui.status(f"    {opt.description}", "info")
                     ui.status(
                         f"    Complexity: {opt.complexity.value} | Risk: {risk_emoji.get(opt.risk.value, '❓')} {opt.risk.value}",
-                        "info"
+                        "info",
                     )
                     if opt.files_affected:
-                        ui.status(f"    Files: {', '.join(opt.files_affected[:3])}", "info")
+                        ui.status(
+                            f"    Files: {', '.join(opt.files_affected[:3])}", "info"
+                        )
 
                 # Ask user to select fix option
                 if fix_plan.recommended_option:
-                    ui.status(f"\n💡 Recommended: Option {fix_plan.recommended_option}", "info")
+                    ui.status(
+                        f"\n💡 Recommended: Option {fix_plan.recommended_option}",
+                        "info",
+                    )
 
-                option_choice = input(f"\nSelect option [{'/'.join([o.option_id for o in fix_plan.options])}/Skip]: ").strip().upper()
+                option_choice = (
+                    input(
+                        f"\nSelect option [{'/'.join([o.option_id for o in fix_plan.options])}/Skip]: "
+                    )
+                    .strip()
+                    .upper()
+                )
 
-                if option_choice.lower() == 'skip':
+                if option_choice.lower() == "skip":
                     ui.status("Skipping this error.", "info")
                     continue
 
@@ -1784,7 +1928,9 @@ Output ONLY the Python code, no markdown, no explanations."""
                 dppm_plan = fix_gen.create_dppm_plan(
                     selected_option,
                     pattern,
-                    agent_key=agent_manager.active_agent.key if agent_manager.active_agent else "default"
+                    agent_key=agent_manager.active_agent.key
+                    if agent_manager.active_agent
+                    else "default",
                 )
 
                 # Show plan
@@ -1796,7 +1942,9 @@ Output ONLY the Python code, no markdown, no explanations."""
                     continue
 
                 # Save and execute plan
-                plan_path = memory_system.save_plan(f"ErrorFix: {pattern.error_type}", dppm_plan)
+                plan_path = memory_system.save_plan(
+                    f"ErrorFix: {pattern.error_type}", dppm_plan
+                )
                 ui.status(f"Plan saved: {plan_path.name}", "success")
 
                 try:
@@ -1862,7 +2010,10 @@ Output ONLY the Python code, no markdown, no explanations."""
             if removed == 0:
                 ui.status(f"Keine Einträge aus '{category}' entfernt.", "info")
             elif keep is None:
-                ui.status(f"Memory '{category}' komplett geleert ({removed} Einträge).", "success")
+                ui.status(
+                    f"Memory '{category}' komplett geleert ({removed} Einträge).",
+                    "success",
+                )
             else:
                 ui.status(
                     f"Memory '{category}' reduziert. {removed} alte Einträge entfernt, {keep} behalten.",
@@ -1932,7 +2083,7 @@ Output ONLY the Python code, no markdown, no explanations."""
                 continue
 
             try:
-                with open(plan_path, 'r', encoding='utf-8') as f:
+                with open(plan_path, "r", encoding="utf-8") as f:
                     plan_data = json.load(f)
 
                 goal = plan_data.get("metadata", {}).get("goal", "Loaded Plan")
@@ -1940,7 +2091,7 @@ Output ONLY the Python code, no markdown, no explanations."""
                 ui.show_plan(plan_data)
 
                 confirm = input("\n▶️  Execute this plan? (y/n): ").strip().lower()
-                if confirm != 'y':
+                if confirm != "y":
                     ui.status("Plan execution cancelled.", "info")
                     continue
 
@@ -1960,6 +2111,7 @@ Output ONLY the Python code, no markdown, no explanations."""
             except Exception as e:
                 ui.status(f"Error executing plan: {e}", "error")
                 import traceback
+
                 traceback.print_exc()
 
             continue
@@ -2103,9 +2255,7 @@ Output ONLY the Python code, no markdown, no explanations."""
 
             try:
                 plan_data.setdefault("metadata", {})
-                provider_metadata = planner_providers.get(
-                    selected_provider_name, {}
-                )
+                provider_metadata = planner_providers.get(selected_provider_name, {})
                 plan_data["metadata"].update(
                     {
                         "planner_provider": selected_provider_name,
@@ -2120,7 +2270,9 @@ Output ONLY the Python code, no markdown, no explanations."""
                     and selected_provider_name != active_planner_provider
                 ):
                     active_planner_provider = selected_provider_name
-                    active_planner_interface = planner_providers[selected_provider_name]["interface"]
+                    active_planner_interface = planner_providers[
+                        selected_provider_name
+                    ]["interface"]
                     _save_active_planner(memory_system, selected_provider_name)
                     ui.status(
                         f"Aktiver Planner-Provider aktualisiert auf '{selected_provider_name}'.",
@@ -2165,15 +2317,20 @@ Output ONLY the Python code, no markdown, no explanations."""
                     max_output_tokens=token_limits.execution_max_tokens,
                 )
                 import time
+
                 start_time = time.time()
-                
+
                 # Run execution but KEEP UI OPEN for merge phase
                 dispatcher.run(keep_ui_open=True)
                 execution_time = time.time() - start_time
 
                 # Integrate Merge into the Dashboard
-                use_rich_parallel = hasattr(ui, 'add_merge_box') and hasattr(ui, 'is_active') and ui.is_active
-                
+                use_rich_parallel = (
+                    hasattr(ui, "add_merge_box")
+                    and hasattr(ui, "is_active")
+                    and ui.is_active
+                )
+
                 if use_rich_parallel:
                     ui.add_merge_box()
                     # We can use the 'MERGE' ID defined in parallel_stream_ui
@@ -2199,30 +2356,30 @@ Output ONLY the Python code, no markdown, no explanations."""
                 if plan_data.get("merge"):
                     # Only ask if not using parallel UI to avoid breaking layout, OR if interactive mode
                     # Ideally we just use default or auto-select for seamless experience
-                    pass 
+                    pass
 
                 merge_timeout = getattr(planner_cfg, "execution_timeout", None)
-                
+
                 # We need to hook into the merge execution to route output to 'MERGE' box if using parallel UI
                 # For now, let's just let it run. If _execute_merge_phase uses ui.stream_prefix,
-                # we might need to adapt it. 
+                # we might need to adapt it.
                 # But wait! ui.stream_prefix is compatible with TerminalUI.
                 # ParallelStreamUI needs to route 'MERGE' output to the merge box.
-                
+
                 # Hack: Temporarily wrap UI methods if using parallel UI
                 if use_rich_parallel:
                     original_streaming_chunk = ui.streaming_chunk
                     original_typing = ui.typing_animation
-                    
+
                     def merge_stream_chunk(chunk):
                         ui.add_response_chunk("MERGE", chunk)
-                    
+
                     def merge_typing(text):
                         ui.add_response_chunk("MERGE", text)
-                        
+
                     ui.streaming_chunk = merge_stream_chunk
                     ui.typing_animation = merge_typing
-                    ui.stream_prefix = lambda x: None # Mute prefix
+                    ui.stream_prefix = lambda x: None  # Mute prefix
 
                 try:
                     merge_success = _execute_merge_phase(
@@ -2242,28 +2399,38 @@ Output ONLY the Python code, no markdown, no explanations."""
                         ui.mark_subtask_complete("MERGE", success=merge_success)
                         time.sleep(1.0)
                         ui.stop_parallel_view()
-                        print() # Clear line
+                        print()  # Clear line
 
                 # Show final status
                 if merge_success:
                     ui.status("Plan und Merge erfolgreich abgeschlossen.", "success")
                 else:
-                    ui.status("Ausführung fertig, aber Merge fehlgeschlagen.", "warning")
+                    ui.status(
+                        "Ausführung fertig, aber Merge fehlgeschlagen.", "warning"
+                    )
 
                 # --- Fallback logic removed for brevity in this refactor, assuming primary works ---
                 # (In production code, keep the fallback logic but adapted for the new UI flow)
 
                 # GEMINI AS JUDGE: Evaluate complete execution (after merge)
                 try:
-                    from selfai.core.gemini_judge import GeminiJudge, format_score_for_terminal
+                    from selfai.core.gemini_judge import (
+                        GeminiJudge,
+                        format_score_for_terminal,
+                    )
 
-                    ui.status("\n🤖 Gemini Judge evaluiert die gesamte Ausführung (Plan + Merge)...", "info")
+                    ui.status(
+                        "\n🤖 Gemini Judge evaluiert die gesamte Ausführung (Plan + Merge)...",
+                        "info",
+                    )
 
                     # Try to initialize judge (includes availability check)
                     try:
                         judge = GeminiJudge()
                     except RuntimeError as init_error:
-                        ui.status(f"⚠️ Gemini Judge Initialisierung fehlgeschlagen:", "error")
+                        ui.status(
+                            f"⚠️ Gemini Judge Initialisierung fehlgeschlagen:", "error"
+                        )
                         ui.status(f"   {init_error}", "warning")
                         raise  # Re-raise to outer catch block
 
@@ -2276,29 +2443,41 @@ Output ONLY the Python code, no markdown, no explanations."""
                             result_file = Path(subtask["result_path"])
                             if result_file.exists():
                                 execution_output += f"\n### Subtask: {subtask.get('title', 'Unknown')}\n"
-                                execution_output += result_file.read_text(encoding='utf-8')[:1000] + "\n"
+                                execution_output += (
+                                    result_file.read_text(encoding="utf-8")[:1000]
+                                    + "\n"
+                                )
 
                     # 2. Collect merge result
-                    merge_result_path = plan_data.get("metadata", {}).get("merge_result_path")
+                    merge_result_path = plan_data.get("metadata", {}).get(
+                        "merge_result_path"
+                    )
                     if merge_result_path:
                         merge_file = Path(merge_result_path)
                         if merge_file.exists():
                             execution_output += f"\n### MERGE RESULT (Final Output):\n"
-                            execution_output += merge_file.read_text(encoding='utf-8')[:2000] + "\n"
+                            execution_output += (
+                                merge_file.read_text(encoding="utf-8")[:2000] + "\n"
+                            )
 
                     # Get list of changed files (if available)
                     files_changed = []
                     try:
                         import subprocess
+
                         git_result = subprocess.run(
                             ["git", "diff", "--name-only"],
                             capture_output=True,
                             text=True,
                             cwd=project_root,
-                            timeout=5
+                            timeout=5,
                         )
                         if git_result.returncode == 0:
-                            files_changed = [f.strip() for f in git_result.stdout.split('\n') if f.strip()]
+                            files_changed = [
+                                f.strip()
+                                for f in git_result.stdout.split("\n")
+                                if f.strip()
+                            ]
                     except Exception:
                         pass
 
@@ -2308,7 +2487,7 @@ Output ONLY the Python code, no markdown, no explanations."""
                         execution_output=execution_output or "No output captured",
                         plan_data=plan_data,
                         execution_time=execution_time,
-                        files_changed=files_changed
+                        files_changed=files_changed,
                     )
 
                     # Display score with traffic light
@@ -2316,11 +2495,18 @@ Output ONLY the Python code, no markdown, no explanations."""
                     print("\n" + score_text + "\n")
 
                     # Save score to memory
-                    score_path = memory_system.memory_dir / "judge_scores" / f"{plan_path.stem}_score.json"
+                    score_path = (
+                        memory_system.memory_dir
+                        / "judge_scores"
+                        / f"{plan_path.stem}_score.json"
+                    )
                     judge.save_score(score, score_path)
 
                 except ImportError as e:
-                    ui.status("⚠️ Gemini Judge nicht verfügbar (Import fehlgeschlagen)", "warning")
+                    ui.status(
+                        "⚠️ Gemini Judge nicht verfügbar (Import fehlgeschlagen)",
+                        "warning",
+                    )
                     ui.status(f"   Fehler: {e}", "info")
                     ui.status("   Tipp: pip install google-generativeai", "info")
                 except RuntimeError as e:
@@ -2331,8 +2517,9 @@ Output ONLY the Python code, no markdown, no explanations."""
                     ui.status(f"   Type: {type(judge_error).__name__}", "warning")
                     ui.status(f"   Message: {judge_error}", "warning")
                     import traceback
+
                     ui.status(f"   Traceback:", "info")
-                    for line in traceback.format_exc().split('\n'):
+                    for line in traceback.format_exc().split("\n"):
                         if line.strip():
                             ui.status(f"     {line}", "info")
 
@@ -2373,35 +2560,44 @@ Output ONLY the Python code, no markdown, no explanations."""
             continue
 
         # =============================================================================
-        # AGENT MODE: Tool-Calling Agent (NEW!)
+        # AGENT MODE: Custom Tool-Calling Agent Loop (MiniMax-Compatible!)
         # =============================================================================
-        ENABLE_AGENT_MODE = getattr(config.system, 'enable_agent_mode', True)
+        ENABLE_AGENT_MODE = getattr(config.system, "enable_agent_mode", True)
 
         if ENABLE_AGENT_MODE and llm_interface:
             try:
                 # Initialize agent lazily (once per session)
-                if 'selfai_agent' not in locals() or selfai_agent is None:
-                    ui.status("🤖 Initialisiere Agent mit Tools...", "info")
+                if "selfai_agent" not in locals() or selfai_agent is None:
+                    ui.status("🤖 Initialisiere Custom Agent Loop mit Tools...", "info")
 
-                    # Get all tools in smolagents format
+                    # Get all tools (already in smolagents format, works with our loop too!)
                     tools = get_tools_for_agent()
                     ui.status(f"✅ {len(tools)} Tools geladen für Agent", "success")
 
-                    # Create agent
-                    selfai_agent = create_selfai_agent(
+                    # Get agent-specific settings
+                    agent_prompt = getattr(
+                        agent_manager.active_agent, "system_prompt", None
+                    )
+
+                    # Create custom agent loop with full configuration
+                    selfai_agent = CustomAgentLoop(
                         llm_interface=llm_interface,
                         tools=tools,
+                        max_steps=getattr(config.system, "agent_max_steps", 10),
                         ui=ui,
-                        max_steps=getattr(config.system, 'agent_max_steps', 10),
-                        verbose=getattr(config.system, 'agent_verbose', False),
+                        verbose=getattr(config.system, "agent_verbose", False),
+                        agent_prompt=agent_prompt,
+                        memory_system=memory_system,
+                        temperature=getattr(config.system, "agent_temperature", 0.1),
+                        streaming=getattr(config.system, "agent_streaming", True),
+                    )
+
+                    ui.status(
+                        "✅ Custom Agent Loop bereit! (MiniMax-kompatibel)", "success"
                     )
 
                 # Run agent with user input (tools are called automatically!)
-                ui.start_spinner("Agent analysiert und nutzt Tools...")
-
                 response_text = selfai_agent.run(user_input)
-
-                ui.stop_spinner()
 
                 # Display response
                 print(f"\n{ui.colorize('SelfAI', 'magenta')}: {response_text}\n")
@@ -2416,68 +2612,16 @@ Output ONLY the Python code, no markdown, no explanations."""
                 continue  # Skip fallback code below
 
             except Exception as agent_error:
-                ui.stop_spinner(f"Agent-Fehler: {agent_error}", "error")
+                import traceback
+
+                traceback.print_exc()
+                ui.status(f"❌ Agent-Fehler: {agent_error}", "error")
                 ui.status("⚠️ Fallback: Nutze direkten LLM-Call ohne Tools", "warning")
 
                 # Disable agent for rest of session and fall through
                 ENABLE_AGENT_MODE = False
                 selfai_agent = None
-
-        # =============================================================================
-        # FALLBACK MODE: Direct LLM Call (Original Code)
-        # =============================================================================
-
-        system_prompt = agent_manager.active_agent.system_prompt
-        history = memory_system.load_relevant_context(
-            agent_manager.active_agent,
-            user_input,
-            limit=2,
-        )
-        response_text = None
-        streamed = False
-        last_error = None
-        order = [active_chat_backend_index] + [
-            idx for idx in range(len(execution_backends)) if idx != active_chat_backend_index
-        ]
-
-        for backend_index in order:
-            backend = execution_backends[backend_index]
-            interface = backend.get("interface")
-            label = backend.get("label") or backend.get("name") or backend_label or "SelfAI"
-            try:
-                ui.start_spinner("SelfAI denkt nach...")
-                response_text, streamed = _generate_with_backend(
-                    interface,
-                    label,
-                    system_prompt,
-                    user_input,
-                    history,
-                )
-                active_chat_backend_index = backend_index
-                break
-            except Exception as exc:  # pylint: disable=broad-except
-                last_error = exc
-                ui.status(
-                    f"LLM-Backend '{label}' fehlgeschlagen: {exc}",
-                    "warning",
-                )
-                continue
-
-        if response_text is None:
-            ui.status(
-                f"Keine Antwort von den LLM-Backends ({last_error}).",
-                "error",
-            )
-            continue
-
-        if not streamed:
-            ui.typing_animation(response_text)
-
-        memory_system.save_conversation(
-            agent=agent_manager.active_agent,
-            user_prompt=user_input,
-            llm_response=response_text,
-        )
+                # Fall through to regular chat mode below (no continue here!)
 
 
 if __name__ == "__main__":

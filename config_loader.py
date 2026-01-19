@@ -23,7 +23,7 @@ class SystemConfig:
     stream_timeout: float = 60.0
 
     # Agent Mode (Tool-Calling)
-    enable_agent_mode: bool = False  # Disabled by default until tested
+    enable_agent_mode: bool = True  # ✅ ENABLED - Custom Agent Loop works!
     agent_max_steps: int = 10
     agent_verbose: bool = False
 

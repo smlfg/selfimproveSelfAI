@@ -73,11 +73,20 @@ class ImprovementManager:
 def parse_proposals_from_json(json_str: str) -> List[ImprovementProposal]:
     """
     Parses the LLM response which should be a JSON object containing a list of proposals.
-    Handles potential markdown code block wrapping.
+    Handles potential markdown code block wrapping, XML tags, and thinking blocks.
     """
     # Clean up markdown code blocks if present
     cleaned = json_str.strip()
-    
+
+    # Remove <think> blocks that MiniMax sometimes outputs
+    cleaned = re.sub(r'<think>.*?</think>', '', cleaned, flags=re.DOTALL)
+
+    # Remove XML-style tags that might appear (tool call attempts)
+    cleaned = re.sub(r'<invoke>.*?</invoke>', '', cleaned, flags=re.DOTALL)
+    cleaned = re.sub(r'<[^>]+>', '', cleaned)  # Remove any remaining XML tags
+
+    cleaned = cleaned.strip()
+
     # Remove markdown code fences
     if "```" in cleaned:
         # Match content between ```json (optional) and ```

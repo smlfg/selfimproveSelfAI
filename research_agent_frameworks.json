@@ -1,0 +1,598 @@
+{
+  "research_date": "2026-01-19",
+  "research_focus": "Tool-calling agent frameworks for MiniMax M2 LLM integration",
+
+  "summary": "MiniMax M2 is specifically engineered for agentic workflows and supports custom tool-calling formats. The research reveals five viable approaches: (1) Custom agent loop (100-300 LOC, full control), (2) smolagents (customizable via prompt templates, actively maintained), (3) LangChain (standardized abstractions, excellent for model-agnostic implementations), (4) LlamaIndex (flexible architecture for custom agents), and (5) LangGraph (low-level state machine control). For MiniMax specifically, a custom loop is fastest to implement, while LangChain or LangGraph offer better long-term maintainability and framework integration.",
+
+  "frameworks": [
+    {
+      "name": "Custom Agent Loop",
+      "prompt_customization": "Full - complete control",
+      "non_openai_support": "Yes - designed for any LLM API",
+      "complexity": "Low (100-300 lines of code)",
+      "features": [
+        "multi-step reasoning",
+        "streaming support",
+        "custom tool formats",
+        "conversation memory",
+        "error handling",
+        "configurable max iterations"
+      ],
+      "estimated_loc": 200,
+      "github_stars": "N/A (custom code)",
+      "last_update": "Variable",
+      "maturity": "Varies by implementation",
+      "pros": [
+        "Fastest to implement (1-2 hours)",
+        "Zero framework overhead",
+        "Complete control over prompt templates",
+        "Easy to debug and understand",
+        "Works perfectly with MiniMax's custom format",
+        "No dependency bloat",
+        "Trivial to modify for changing requirements"
+      ],
+      "cons": [
+        "No built-in features (tooling, monitoring, etc.)",
+        "Must handle edge cases manually",
+        "Harder to scale to multi-agent scenarios",
+        "Less community examples and support",
+        "Requires more testing",
+        "Tool registry must be manual"
+      ],
+      "verdict": "BEST for quick MVP (2 hours). Ideal for MiniMax since format works perfectly in isolation. Risk: harder to extend later if needs grow.",
+      "implementation_references": [
+        "https://maxscheijen.github.io/posts/basic-llm-agent-with-tool-calling/ - Minimal 9-line Python implementation",
+        "https://sketch.dev/blog/agent-loop - Full agent loop explanation",
+        "https://www.braintrust.dev/blog/agent-while-loop - Canonical while loop pattern",
+        "https://www.siddharthbharath.com/build-a-coding-agent-python-tutorial/ - 300-line complete example"
+      ]
+    },
+    {
+      "name": "smolagents",
+      "prompt_customization": "Moderate - customizable via Jinja2 prompt templates",
+      "non_openai_support": "Yes - multiple LLM providers supported",
+      "complexity": "Low-Medium (minimal framework overhead)",
+      "features": [
+        "CodeAgent (Python code format)",
+        "ToolCallingAgent (JSON format)",
+        "Jinja2 template system",
+        "tool_descriptions variable injection",
+        "multiple LLM providers",
+        "streaming support",
+        "agent composition"
+      ],
+      "estimated_loc": 150,
+      "github_stars": 15200,
+      "last_update": "2025-01 (active development)",
+      "maturity": "New but actively maintained by Hugging Face",
+      "pros": [
+        "Customizable prompt templates via Jinja2",
+        "Can override TOOL_CALLING_SYSTEM_PROMPT",
+        "Very lightweight (~1000 LOC core)",
+        "Hugging Face backing and ecosystem",
+        "Two agent types to choose from",
+        "Quick integration (50-100 LOC)",
+        "Active roadmap and contributions welcome"
+      ],
+      "cons": [
+        "CRITICAL: MiniMax confusion issue after first tool call (XML format injection)",
+        "Newer framework, less battle-tested",
+        "Smaller community compared to LangChain",
+        "Limited examples for custom formats",
+        "Less documentation for advanced customization"
+      ],
+      "verdict": "CAUTION - Framework itself is good, but CURRENT CONFIG causes MiniMax issues. Would work if prompt template fully overridden to eliminate [TOOL_CALL] XML format. Requires investigation of how deeply prompt templates can be customized.",
+      "specific_findings": {
+        "prompt_customization_mechanism": "System prompts use Jinja2 templates with variables like {{tool_descriptions}}. Users can pass modified_prompt via system_prompt parameter during agent initialization.",
+        "template_variables": ["tool_descriptions", "tools_info", "agent_context"],
+        "customization_example": "Pass custom TOOL_CALLING_SYSTEM_PROMPT with your 'Action: {...}' format instead of [TOOL_CALL]",
+        "limitation": "Must verify if template system prevents smolagents from injecting its own XML format after first tool call"
+      },
+      "implementation_references": [
+        "https://smolagents.org/docs/tools-of-smolagents-in-depth-guide/",
+        "https://huggingface.co/docs/smolagents/en/reference/agents",
+        "https://www.analyticsvidhya.com/blog/2025/03/custom-tools-for-ai-agents/",
+        "https://huggingface.co/learn/cookbook/en/agents"
+      ]
+    },
+    {
+      "name": "LangChain",
+      "prompt_customization": "Full - CustomPromptTemplate classes, complete flexibility",
+      "non_openai_support": "Excellent - standardized bind_tools() across providers",
+      "complexity": "Medium (200-400 LOC for custom implementation)",
+      "features": [
+        "bind_tools() standardization",
+        "tool_calls unified interface",
+        "create_tool_calling_agent()",
+        "CustomPromptTemplate support",
+        "streaming integration",
+        "memory management",
+        "extensive LLM provider support",
+        "custom tool creation"
+      ],
+      "estimated_loc": 250,
+      "github_stars": 95000,
+      "last_update": "2025-01 (v1.0 released)",
+      "maturity": "Mature, production-ready",
+      "pros": [
+        "Standardized abstraction across all LLM providers",
+        "Complete prompt template customization",
+        "bind_tools() works with custom tool formats",
+        "Unified tool_calls output format",
+        "Excellent documentation and examples",
+        "Largest community and ecosystem",
+        "Production battle-tested",
+        "Easy to switch between LLM providers",
+        "Works great with non-OpenAI models"
+      ],
+      "cons": [
+        "Larger codebase, more dependencies",
+        "Steeper learning curve than custom loop",
+        "May have overhead for simple cases",
+        "More abstraction layers to understand",
+        "Initial setup more complex"
+      ],
+      "verdict": "EXCELLENT for long-term solutions. Best if you want framework features + custom tool format. LangChain's approach to standardization means you write format once, works everywhere.",
+      "specific_findings": {
+        "key_components": {
+          "bind_tools": "ChatModel.bind_tools() specifies available tools, translates to provider-specific format",
+          "tool_calls_interface": "AIMessage.tool_calls returns {name, args, id} in standardized format",
+          "custom_agent": "create_tool_calling_agent() works with any model implementing bind_tools()"
+        },
+        "for_custom_format": "Use CustomPromptTemplate to define your 'Action: {...}' format, bind_tools will inject tool schemas into your template",
+        "non_openai_approach": "For local models without native tool calling, use custom prompt engineering + output parsing for your format"
+      },
+      "implementation_references": [
+        "https://www.blog.langchain.com/tool-calling-with-langchain/",
+        "https://python.langchain.com/docs/how_to/function_calling/",
+        "https://anshuls235.medium.com/%EF%B8%8F-tool-calling-with-langchain-open-source-models-run-it-locally-seamlessly-8d31ff4c7a76",
+        "https://docs.langchain.com/oss/python/langchain/overview"
+      ]
+    },
+    {
+      "name": "LangGraph",
+      "prompt_customization": "Full - low-level primitives with explicit control",
+      "non_openai_support": "Excellent - works with any LLM via low-level abstractions",
+      "complexity": "Medium-High (state machine definition required)",
+      "features": [
+        "explicit state machines",
+        "low-level primitives",
+        "tool calling patterns",
+        "error handling",
+        "multi-step workflows",
+        "streaming support",
+        "persistence/checkpointing",
+        "production-grade runtime"
+      ],
+      "estimated_loc": 300,
+      "github_stars": 30000,
+      "last_update": "2025-01 (v1.0 released)",
+      "maturity": "New but stable (v1.0 with stability commitment)",
+      "pros": [
+        "Fine-grained control over agent logic",
+        "Excellent for complex multi-agent systems",
+        "Low-level primitives = full customization",
+        "State machine explicitly defined",
+        "Production-grade with monitoring/observability",
+        "Part of LangChain ecosystem integration",
+        "Supports any LLM",
+        "Error handling built-in"
+      ],
+      "cons": [
+        "Steeper learning curve (state machines)",
+        "More code than smolagents/LangChain",
+        "Might be overkill for simple agents",
+        "Requires understanding of workflow patterns",
+        "Graph-based thinking not intuitive for all"
+      ],
+      "verdict": "BEST for production systems that will grow. If you expect multi-agent, complex reasoning, or production monitoring needs, this is future-proof. Overkill for MVP.",
+      "specific_findings": {
+        "tool_calling_loop": "Standard pattern: LLM → ToolNode → LLM using tools_condition for decision routing",
+        "custom_format_support": "Low-level approach means you define exact prompt and parsing logic",
+        "state_management": "Explicit state machine ensures clean control flow"
+      },
+      "implementation_references": [
+        "https://sangeethasaravanan.medium.com/building-tool-calling-agents-with-langgraph-a-complete-guide-ebdcdea8f475",
+        "https://www.blog.langchain.com/langchain-langgraph-1dot0/",
+        "https://ai.google.dev/gemini-api/docs/langgraph-example"
+      ]
+    },
+    {
+      "name": "LlamaIndex",
+      "prompt_customization": "Moderate - can customize via agent types and prompt templates",
+      "non_openai_support": "Yes - supports multiple LLM providers",
+      "complexity": "Medium (agent configuration + custom tools)",
+      "features": [
+        "FunctionAgent (function calling)",
+        "ReActAgent (multi-step reasoning)",
+        "CodeActAgent (code execution)",
+        "custom agent building",
+        "tool abstraction (generic interface)",
+        "RichPromptTemplate",
+        "streaming support"
+      ],
+      "estimated_loc": 200,
+      "github_stars": 50000,
+      "last_update": "2025-01",
+      "maturity": "Mature, production-ready",
+      "pros": [
+        "Multiple agent types for different use cases",
+        "Generic tool interface (easy to customize)",
+        "Can build 'lower-level agents' for full control",
+        "Good documentation",
+        "Works with any LLM",
+        "Prompt template customization available"
+      ],
+      "cons": [
+        "More oriented toward RAG/document workflows",
+        "Less obvious how to customize tool format vs LangChain",
+        "Smaller community than LangChain",
+        "Documentation less focused on custom tool formats"
+      ],
+      "verdict": "GOOD alternative if you need document/context integration. For pure tool-calling agents, LangChain or LangGraph are better bets. Can build custom agents from scratch for full control.",
+      "specific_findings": {
+        "tool_interface": "Very generic - just define __call__ and metadata (name, description, schema)",
+        "custom_agents": "Documentation mentions building 'lower-level agents' for 'full control over how tool calling and error handling works'",
+        "prompt_customization": "Offer RichPromptTemplate and ability to override default prompts"
+      },
+      "implementation_references": [
+        "https://docs.llamaindex.ai/en/stable/use_cases/agents/",
+        "https://developers.llamaindex.ai/python/framework/understanding/agent/",
+        "https://huggingface.co/learn/agents-course/en/unit2/llama-index/agents"
+      ]
+    },
+    {
+      "name": "Haystack",
+      "prompt_customization": "Moderate - can switch ChatGenerator and customize tools",
+      "non_openai_support": "Good - supports OpenAI, Anthropic, Bedrock, Gemini",
+      "complexity": "Medium (pipeline component model)",
+      "features": [
+        "universal Agent component",
+        "multiple tool creation methods",
+        "ComponentTool wrapper",
+        "pipeline composition",
+        "streaming support",
+        "state management"
+      ],
+      "estimated_loc": 250,
+      "github_stars": 18000,
+      "last_update": "2025-01",
+      "maturity": "Mature, production-ready",
+      "pros": [
+        "Component-based pipeline model is elegant",
+        "Easy to integrate existing Haystack pipelines as tools",
+        "Flexible tool creation (three methods)",
+        "Works with multiple LLM providers",
+        "Good for orchestration-heavy workflows"
+      ],
+      "cons": [
+        "Smaller community than LangChain",
+        "More oriented toward RAG/document workflows",
+        "Less documentation on custom agent loops",
+        "Learning curve for pipeline model"
+      ],
+      "verdict": "GOOD if you're already in Haystack ecosystem. Otherwise, LangChain offers more documentation for custom tool formats. Better for orchestration than pure agent loops.",
+      "implementation_references": [
+        "https://haystack.deepset.ai/tutorials/43_building_a_tool_calling_agent",
+        "https://docs.haystack.deepset.ai/docs/agents"
+      ]
+    },
+    {
+      "name": "AutoGen",
+      "prompt_customization": "Limited - fixed conversation pattern",
+      "non_openai_support": "Partial - primarily designed for OpenAI",
+      "complexity": "Medium-High (multi-agent conversation model)",
+      "features": [
+        "multi-agent conversations",
+        "code execution",
+        "function calling",
+        "human-in-the-loop",
+        "conversation management"
+      ],
+      "estimated_loc": 300,
+      "github_stars": 48000,
+      "last_update": "2025-01",
+      "maturity": "Very mature (Microsoft-backed since 2019)",
+      "pros": [
+        "Excellent for multi-agent scenarios",
+        "Code execution and self-correction",
+        "Enterprise-grade maturity",
+        "Strong human-in-the-loop support",
+        "Large community"
+      ],
+      "cons": [
+        "NOT designed for custom tool formats",
+        "Fixed conversation model hard to customize",
+        "Primarily OpenAI-focused",
+        "Overkill for simple agent loops",
+        "Not recommended for MiniMax integration"
+      ],
+      "verdict": "NOT RECOMMENDED for MiniMax tool-calling format. Better for multi-agent teams and code execution. Would require significant customization to work with MiniMax's 'Action: {...}' format.",
+      "implementation_references": [
+        "https://oxylabs.io/blog/crewai-vs-autogen",
+        "https://www.datacamp.com/tutorial/crewai-vs-langgraph-vs-autogen"
+      ]
+    },
+    {
+      "name": "CrewAI",
+      "prompt_customization": "Moderate - can customize per LLM and prompt templates",
+      "non_openai_support": "Yes - supports OpenAI, Anthropic, local models",
+      "complexity": "Low (role + task model)",
+      "features": [
+        "role-based agents",
+        "task-based workflows",
+        "prompt customization",
+        "tool attachment to roles",
+        "streaming support",
+        "multi-agent coordination"
+      ],
+      "estimated_loc": 150,
+      "github_stars": 35000,
+      "last_update": "2025-01",
+      "maturity": "Newer (started Nov 2023) but actively maintained",
+      "pros": [
+        "Intuitive role + task model",
+        "Quick to get working prototypes",
+        "Growing community (1.3M installs/month)",
+        "Customizable prompts per LLM",
+        "Good documentation with examples",
+        "Handles multi-agent scenarios well"
+      ],
+      "cons": [
+        "Less focused on low-level tool format customization",
+        "Newer = less battle-tested in production",
+        "Smaller community than LangChain/AutoGen",
+        "Less flexibility for unusual tool formats"
+      ],
+      "verdict": "REASONABLE middle ground between simplicity and features. If you want a framework with more features than custom loop but simpler than LangChain. Good for team/role-based agents.",
+      "implementation_references": [
+        "https://docs.crewai.com/en/guides/advanced/customizing-prompts",
+        "https://sider.ai/blog/ai-tools/crewai-vs-autogen-which-multi-agent-framework-wins-in-2025"
+      ]
+    }
+  ],
+
+  "minimax_specific_insights": {
+    "model_strengths": "MiniMax-M2.1 is explicitly built for agentic workflows with 230B total parameters (10B active). Supports structured tool calling and ReACT paradigm natively.",
+    "api_compatibility": "API is Anthropic-compatible, supporting special tokens for thoughts and tool actions",
+    "tool_format_preference": "MiniMax learns 'Action: {...}' JSON format perfectly in isolation but gets confused when frameworks inject their own XML formats after first tool call",
+    "recommendation": "Use custom agent loop or heavily customized LangChain implementation to maintain consistency with MiniMax's preferred format. Avoid frameworks that enforce specific formats (AutoGen, original smolagents).",
+    "integration_path": "1. Start with custom 100-200 LOC loop for MVP (2 hours). 2. If needing scaling, migrate to LangChain with custom prompt template (8 hours). 3. If needing production-grade multi-agent, upgrade to LangGraph (16+ hours)."
+  },
+
+  "framework_comparison_matrix": {
+    "criteria": [
+      "Speed to MVP (hours)",
+      "Custom format difficulty (1-10)",
+      "Long-term maintainability (1-10)",
+      "Feature richness (1-10)",
+      "Documentation quality (1-10)",
+      "Community size (relative)",
+      "Production readiness (1-10)"
+    ],
+    "scores": {
+      "custom_loop": [1, 2, 4, 2, 5, "Solo", 7],
+      "smolagents": [2, 5, 6, 7, 6, "Small", 6],
+      "langchain": [4, 3, 9, 9, 10, "Huge", 10],
+      "langgraph": [6, 3, 10, 9, 9, "Large", 10],
+      "llamaindex": [4, 5, 7, 7, 7, "Medium", 8],
+      "haystack": [4, 6, 7, 6, 6, "Small", 8],
+      "autogen": [5, 9, 7, 8, 8, "Large", 9],
+      "crewai": [3, 6, 7, 8, 8, "Large", 7]
+    }
+  },
+
+  "recommendations": {
+    "quick_solution": {
+      "approach": "Custom Agent Loop",
+      "reason": "MiniMax works perfectly with 'Action: {...}' format in isolation. A custom 100-200 line loop avoids framework overhead and prompt confusion. You can build this in 1-2 hours with full control.",
+      "estimated_time_hours": 1.5,
+      "pros_vs_alternatives": [
+        "No framework dependencies",
+        "Zero format translation/confusion",
+        "Easy to debug and modify",
+        "Works immediately with MiniMax"
+      ],
+      "cons": [
+        "No built-in features (memory, multi-agent, monitoring)",
+        "Must build tool registry manually",
+        "Harder to scale later"
+      ],
+      "implementation_outline": [
+        "1. Define system prompt with tool descriptions",
+        "2. Create simple tool executor/parser for 'Action: {...}' format",
+        "3. Build loop: call LLM → parse action → execute → add result → repeat",
+        "4. Add max_iterations safety limit",
+        "5. Handle streaming if needed"
+      ],
+      "code_reference": "https://maxscheijen.github.io/posts/basic-llm-agent-with-tool-calling/ (minimal 9-line pattern)"
+    },
+
+    "long_term_solution": {
+      "approach": "LangChain with Custom Prompt Template",
+      "reason": "If the project grows beyond MVP, LangChain provides framework infrastructure while letting you keep your 'Action: {...}' format via CustomPromptTemplate. You maintain format consistency across all LLMs.",
+      "estimated_time_hours": 8,
+      "pros_vs_alternatives": [
+        "Easy model switching (MiniMax → Claude → GPT-4)",
+        "Built-in memory, streaming, error handling",
+        "Largest community and ecosystem",
+        "Production battle-tested",
+        "Can add tools without code changes",
+        "Unified tool_calls interface"
+      ],
+      "cons": [
+        "More code than custom loop",
+        "Steeper learning curve",
+        "Some framework overhead"
+      ],
+      "implementation_outline": [
+        "1. Create CustomPromptTemplate with your 'Action: {...}' format",
+        "2. Use bind_tools() to inject tool schemas",
+        "3. Implement output parser for your action format",
+        "4. Create create_tool_calling_agent() with custom template",
+        "5. Add memory and streaming layers"
+      ],
+      "migration_path": "Start with custom loop, migrate to LangChain once requirements stabilize. ~4 hour refactor."
+    },
+
+    "pragmatic_middle_ground": {
+      "approach": "smolagents (if prompt customization verified) OR Custom Loop → LangChain migration plan",
+      "reason": "smolagents is lightweight and Hugging Face-backed, but REQUIRES verifying that Jinja2 prompt templates can fully override the [TOOL_CALL] XML format. If not possible, stick with custom loop and plan LangChain migration.",
+      "decision_tree": {
+        "if_smolagents_fully_customizable": "Use smolagents with custom system_prompt parameter. Minimal overhead, good features, active project.",
+        "if_smolagents_has_limitations": "Use custom loop now, plan LangChain upgrade for Phase 2 when requirements stabilize."
+      },
+      "estimated_time_hours": 3,
+      "verification_required": "Test if smolagents allows COMPLETE prompt template override that prevents [TOOL_CALL] injection after first tool call."
+    }
+  },
+
+  "critical_findings": {
+    "smolagents_issue": {
+      "problem": "MiniMax understands 'Action: {...}' format perfectly, but smolagents injects [TOOL_CALL] XML format which confuses MiniMax after first tool call",
+      "root_cause": "Framework enforces its own tool-calling format in prompt templates",
+      "solution_status": "Unclear if Jinja2 template system allows COMPLETE override. Requires code investigation.",
+      "action_item": "Before committing to smolagents, verify PromptTemplates parameter can fully customize to avoid XML injection"
+    },
+
+    "minimax_advantage": {
+      "insight": "MiniMax-M2.1 is SPECIFICALLY ENGINEERED for agent tool-calling workflows - it's literally marketed as 'best agentic tool-calling LLM'",
+      "implication": "Simple, consistent tool format (like 'Action: {...}') is KEY to getting best performance. Avoid framework format wrangling.",
+      "recommendation": "Prioritize prompt consistency over framework features. Custom loop respects this principle better than auto-format-translating frameworks."
+    }
+  },
+
+  "references": [
+    {
+      "title": "MiniMax-M2 is the new king of open source LLMs (especially for agentic tool calling)",
+      "url": "https://venturebeat.com/ai/minimax-m2-is-the-new-king-of-open-source-llms-especially-for-agentic-tool",
+      "relevance": "MiniMax engineering for agentic workflows"
+    },
+    {
+      "title": "Basic LLM Agent with Tool Calling",
+      "url": "https://maxscheijen.github.io/posts/basic-llm-agent-with-tool-calling/",
+      "relevance": "Minimal agent loop implementation example"
+    },
+    {
+      "title": "The Unreasonable Effectiveness of an LLM Agent Loop with Tool Use",
+      "url": "https://sketch.dev/blog/agent-loop",
+      "relevance": "9-line agent loop pattern explanation"
+    },
+    {
+      "title": "Build a Coding Agent from Scratch: The Complete Python Tutorial",
+      "url": "https://www.siddharthbharath.com/build-a-coding-agent-python-tutorial/",
+      "relevance": "Complete 300-line custom agent implementation"
+    },
+    {
+      "title": "Tools of Smolagents in-depth guide",
+      "url": "https://smolagents.org/docs/tools-of-smolagents-in-depth-guide/",
+      "relevance": "smolagents tool customization capabilities"
+    },
+    {
+      "title": "Prompt Engineering in smolagents",
+      "url": "https://deepwiki.com/huggingface/smolagents/4.4-prompt-engineering",
+      "relevance": "smolagents prompt template customization"
+    },
+    {
+      "title": "Tool Calling with LangChain",
+      "url": "https://www.blog.langchain.com/tool-calling-with-langchain/",
+      "relevance": "LangChain tool-calling standardization approach"
+    },
+    {
+      "title": "How to do tool/function calling",
+      "url": "https://python.langchain.com/docs/how_to/function_calling/",
+      "relevance": "LangChain function calling documentation"
+    },
+    {
+      "title": "Tool-Calling with LangChain & Open-Source Models",
+      "url": "https://anshuls235.medium.com/%EF%B8%8F-tool-calling-with-langchain-open-source-models-run-it-locally-seamlessly-8d31ff4c7a76",
+      "relevance": "LangChain with non-OpenAI models"
+    },
+    {
+      "title": "Building Tool Calling Agents with LangGraph: A Complete Guide",
+      "url": "https://sangeethasaravanan.medium.com/building-tool-calling-agents-with-langgraph-a-complete-guide-ebdcdea8f475",
+      "relevance": "LangGraph tool-calling implementation"
+    },
+    {
+      "title": "LangChain and LangGraph Agent Frameworks Reach v1.0 Milestones",
+      "url": "https://www.blog.langchain.com/langchain-langgraph-1dot0/",
+      "relevance": "LangChain/LangGraph maturity and v1.0 stability"
+    },
+    {
+      "title": "CrewAI vs. AutoGen: Comparing AI Agent Frameworks",
+      "url": "https://oxylabs.io/blog/crewai-vs-autogen",
+      "relevance": "Framework comparison and positioning"
+    },
+    {
+      "title": "CrewAI vs AutoGen: Which Multi-Agent Framework Wins in 2025",
+      "url": "https://sider.ai/blog/ai-tools/crewai-vs-autogen-which-multi-agent-framework-wins-in-2025",
+      "relevance": "2025 framework landscape"
+    },
+    {
+      "title": "Mastering Agents: LangGraph Vs Autogen Vs Crew AI",
+      "url": "https://galileo.ai/blog/mastering-agents-langgraph-vs-autogen-vs-crew",
+      "relevance": "Framework architectural comparison"
+    },
+    {
+      "title": "Build a Tool-Calling Agent | Haystack",
+      "url": "https://haystack.deepset.ai/tutorials/43_building_a_tool_calling_agent",
+      "relevance": "Haystack tool-calling tutorial"
+    },
+    {
+      "title": "Agents | LlamaIndex Python Documentation",
+      "url": "https://docs.llamaindex.ai/en/stable/use_cases/agents/",
+      "relevance": "LlamaIndex agent architecture"
+    },
+    {
+      "title": "Building an agent | LlamaIndex Python Documentation",
+      "url": "https://developers.llamaindex.ai/python/framework/understanding/agent/",
+      "relevance": "LlamaIndex agent customization"
+    },
+    {
+      "title": "The canonical agent architecture: A while loop with tools",
+      "url": "https://www.braintrust.dev/blog/agent-while-loop",
+      "relevance": "Canonical agent loop pattern"
+    },
+    {
+      "title": "Basic Agentic Loop with Tool Calling",
+      "url": "https://docs.temporal.io/ai-cookbook/agentic-loop-tool-call-openai-python",
+      "relevance": "Basic agentic loop examples"
+    },
+    {
+      "title": "GitHub - huggingface/smolagents",
+      "url": "https://github.com/huggingface/smolagents",
+      "relevance": "smolagents source and documentation"
+    }
+  ],
+
+  "action_items_for_main_agent": [
+    {
+      "priority": 1,
+      "task": "Verify smolagents prompt template customization capability",
+      "description": "Test if PromptTemplates parameter + system_prompt override can COMPLETELY prevent [TOOL_CALL] XML injection after first tool call",
+      "estimated_effort": "30 minutes code exploration",
+      "decision_impact": "Determines if smolagents is viable or if custom loop is necessary"
+    },
+    {
+      "priority": 2,
+      "task": "Implement custom agent loop as fallback",
+      "description": "Build 150-200 LOC custom agent loop for MiniMax with 'Action: {...}' format. Use as MVP while framework decision is made.",
+      "estimated_effort": "1-2 hours",
+      "decision_impact": "Provides working MVP immediately, unblocks development"
+    },
+    {
+      "priority": 3,
+      "task": "Create LangChain migration path",
+      "description": "Design how to refactor custom loop into LangChain CustomPromptTemplate if MVP grows beyond initial scope",
+      "estimated_effort": "Architecture planning only",
+      "decision_impact": "Ensures non-wasted effort if framework needed later"
+    },
+    {
+      "priority": 4,
+      "task": "Document tool format standard",
+      "description": "Formalize 'Action: {...}' JSON format spec with examples for consistency across custom/framework implementations",
+      "estimated_effort": "30 minutes",
+      "decision_impact": "Prevents format confusion in future development"
+    }
+  ]
+}

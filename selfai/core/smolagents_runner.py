@@ -60,6 +60,7 @@ class _SelfAIModel(Model):
         self.llm_interface = llm_interface
         self.ui = ui
         self.task_id = task_id
+        self.custom_system_prompt = None  # Will be set by create_selfai_agent()
 
     def generate(
         self,
@@ -101,7 +102,11 @@ class _SelfAIModel(Model):
             last_message = message_dicts[-1]
             user_prompt = _normalize_content(last_message.get("content"))
 
-        system_prompt = "\n\n".join(part for part in system_prompt_parts if part)
+        # Use custom system prompt if set, otherwise use smolagents default
+        if self.custom_system_prompt:
+            system_prompt = self.custom_system_prompt
+        else:
+            system_prompt = "\n\n".join(part for part in system_prompt_parts if part)
 
         # Handle UI streaming if available
         if self.ui and self.task_id and hasattr(self.llm_interface, "stream_generate_response"):
@@ -182,7 +187,13 @@ class _SelfAIModel(Model):
     def _parse_tool_calls(text: str) -> Tuple[list[ChatMessageToolCall], str]:
         """
         Extrahiere Tool-Aufrufe aus dem vom LLM gelieferten Text.
-        Erkennt Sequenzen der Form 'Action: { ... }' und wandelt sie in ToolCall-Objekte um.
+
+        Unterstützt BEIDE Formate:
+        1. "Action: {"name": "tool", "arguments": {...}}"  (unser Custom Format)
+        2. "[TOOL_CALL] {tool => "tool", args => {...}} [/TOOL_CALL]"  (smolagents Format - BROKEN!)
+
+        Da MiniMax das smolagents-Format nicht korrekt produziert,
+        konvertieren wir es einfach immer zu unserem Action-Format.
         """
         tool_calls: list[ChatMessageToolCall] = []
         cursor = 0
@@ -214,6 +225,7 @@ class _SelfAIModel(Model):
                         return source[start_index : idx + 1], idx + 1
             return None, start_index
 
+        # Parse "Action: {...}" format (our working format)
         while cursor < length:
             action_idx = text.find("Action:", cursor)
             if action_idx == -1:

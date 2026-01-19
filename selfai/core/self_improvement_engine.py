@@ -122,19 +122,26 @@ class SelfImprovementEngine:
         """
 
         self.ui.status("Generiere Verbesserungsvorschläge (LLM)...", "info")
-        
-        # Call LLM
-        # Use generate_response or chat depending on interface
-        if hasattr(self.llm_interface, "generate_response"):
-            response = self.llm_interface.generate_response(
-                system_prompt="You are a JSON-generating code architect.",
+
+        # Call LLM - try direct API call if MiniMax to avoid tool-calling interference
+        if hasattr(self.llm_interface, "_call_api_direct"):
+            # Use direct API call (bypasses identity enforcement and tool-calling)
+            response = self.llm_interface._call_api_direct(
+                system_prompt="You are a JSON-generating code architect. Output ONLY valid JSON, no markdown, no XML tags, no explanations.",
                 user_prompt=prompt,
-                max_output_tokens=2048
+                max_tokens=2048,
+                temperature=0.3  # Lower temperature for structured output
+            )
+        elif hasattr(self.llm_interface, "generate_response"):
+            response = self.llm_interface.generate_response(
+                system_prompt="You are a JSON-generating code architect. Output ONLY valid JSON.",
+                user_prompt=prompt,
+                max_tokens=2048
             )
         else:
             # Fallback
             response = self.llm_interface.chat(
-                system_prompt="You are a JSON-generating code architect.",
+                system_prompt="You are a JSON-generating code architect. Output ONLY valid JSON.",
                 user_prompt=prompt
             )
 

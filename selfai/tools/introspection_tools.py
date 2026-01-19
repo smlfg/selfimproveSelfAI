@@ -146,6 +146,10 @@ class ReadSelfAICodeTool:
             # Finde SelfAI root
             selfai_root = Path(__file__).parent.parent  # tools/ -> selfai/
 
+            # Strip 'selfai/' prefix if provided (agent might add it)
+            if file_path.startswith("selfai/"):
+                file_path = file_path[7:]  # Remove 'selfai/' prefix
+
             # Konstruiere vollständigen Pfad
             full_path = selfai_root / file_path
 

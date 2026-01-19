@@ -44,7 +44,7 @@ def load_configuration(config_path: str = 'config.yaml') -> MiniMaxConfig:
     # Konfigurationswerte aus YAML laden
     minimax_section = config_data.get('minimax', {})
     base_url = minimax_section.get('base_url', 'https://api.minimax.io/v1')
-    model = minimax_section.get('model', 'openai/MiniMax-M2')
+    model = minimax_section.get('model', 'MiniMax-M2')
     
     # Authorization-Header erstellen
     headers = {

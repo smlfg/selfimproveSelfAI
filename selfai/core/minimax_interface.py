@@ -24,7 +24,7 @@ JUDGE_SAMPLE_RATE = 0.1              # 10% sampling
 
 class MinimaxInterface:
     def __init__(self, api_key: str, api_base: str = "https://api.minimax.io/v1",
-                 model: str = "openai/MiniMax-M2", ui=None):
+                 model: str = "MiniMax-M2", ui=None):
         self.api_key = api_key
         self.api_base = api_base.rstrip('/')
         self.model = model
@@ -205,6 +205,45 @@ class MinimaxInterface:
         # Should not reach here, but just in case
         logger.error("Identity enforcement failed nach allen Retries")
         return clean_content  # Return last attempt
+
+    def _call_api_direct(self, system_prompt: str, user_prompt: str,
+                        max_tokens: int = 512, temperature: float = 0.7) -> str:
+        """
+        Direct API call bypassing identity enforcement and tool-calling.
+        Use for structured output tasks like JSON generation.
+        """
+        url = f"{self.api_base}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+        model_name = self.model.replace("openai/", "")
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+
+        data = {
+            "model": model_name,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature
+        }
+
+        try:
+            response = requests.post(url, headers=headers, json=data, timeout=60)
+            response.raise_for_status()
+            result = response.json()
+            content = result["choices"][0]["message"]["content"]
+
+            # Remove think tags if present
+            clean_content, _ = parse_think_tags(content)
+            return clean_content
+
+        except Exception as e:
+            logger.error(f"❌ Direct MiniMax API Error: {e}")
+            raise
 
     def stream_generate_response(self, system_prompt: str, user_prompt: str,
                                  max_tokens: int = 512, temperature: float = 0.7,

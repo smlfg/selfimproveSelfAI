@@ -17,13 +17,15 @@ from selfai.tools.aider_tool import run_aider_task, run_aider_architect
 from selfai.tools.openhands_tool import (
     run_openhands_task,
     run_openhands_architect,
-    compare_coding_tools
+    compare_coding_tools,
 )
 from selfai.tools.introspection_tools import (
     ListSelfAIFilesTool,
     ReadSelfAICodeTool,
     SearchSelfAICodeTool,
 )
+from selfai.tools.dummy_tool import HelloWorldTool, EchoTool, CounterTool
+from selfai.tools.hello_tool import SimpleHelloTool
 
 
 @dataclass
@@ -65,7 +67,9 @@ class RegisteredTool:
         tool_name = self.name
         tool_description = schema.get("description") or self.description or tool_name
         parameters = schema.get("parameters", {})
-        properties = parameters.get("properties", {}) if isinstance(parameters, dict) else {}
+        properties = (
+            parameters.get("properties", {}) if isinstance(parameters, dict) else {}
+        )
 
         func = self.func
         tool_output_type = self.output_type or "string"
@@ -92,6 +96,7 @@ class RegisteredTool:
 
 # --- Tool Definitions ---
 
+
 def get_current_weather(location: str, unit: str = "celsius") -> str:
     """
     Return a dummy weather report.
@@ -106,7 +111,9 @@ def get_current_weather(location: str, unit: str = "celsius") -> str:
     if "tokyo" in location.lower():
         return json.dumps({"location": "Tokyo", "temperature": "10", "unit": unit})
     if "san francisco" in location.lower():
-        return json.dumps({"location": "San Francisco", "temperature": "72", "unit": unit})
+        return json.dumps(
+            {"location": "San Francisco", "temperature": "72", "unit": unit}
+        )
     if "paris" in location.lower():
         return json.dumps({"location": "Paris", "temperature": "22", "unit": unit})
     return json.dumps({"location": location, "temperature": "unknown", "unit": unit})
@@ -175,6 +182,7 @@ def find_train_connections(
 
     return json.dumps({"matches": matches, "count": len(matches)})
 
+
 def _resolve_project_path(relative_path: str) -> Path:
     candidate = (PROJECT_ROOT / (relative_path or ".")).resolve()
     project_root_resolved = PROJECT_ROOT.resolve()
@@ -224,7 +232,9 @@ def read_project_file(
     try:
         content = file_path.read_text(encoding="utf-8")
     except OSError as exc:
-        return json.dumps({"error": f"Datei konnte nicht gelesen werden: {exc}", "content": ""})
+        return json.dumps(
+            {"error": f"Datei konnte nicht gelesen werden: {exc}", "content": ""}
+        )
 
     limit = max(1, int(max_chars or 4000))
     snippet = content[:limit]
@@ -232,7 +242,11 @@ def read_project_file(
         snippet = snippet.strip()
 
     return json.dumps(
-        {"path": str(file_path.relative_to(PROJECT_ROOT)), "content": snippet, "truncated": len(content) > limit}
+        {
+            "path": str(file_path.relative_to(PROJECT_ROOT)),
+            "content": snippet,
+            "truncated": len(content) > limit,
+        }
     )
 
 
@@ -681,7 +695,7 @@ register_tool(
                     },
                     "model": {
                         "type": "string",
-                        "description": "LLM model to use (default: openai/MiniMax-M2)",
+                        "description": "LLM model to use (default: MiniMax-M2)",
                     },
                     "timeout": {
                         "type": "integer",
@@ -825,6 +839,232 @@ register_tool(
     )
 )
 
+# --- Bash Wrapper Tools (ls, cat, grep) ---
+
+from selfai.tools.bash_wrapper import tool_ls, tool_cat, tool_grep, tool_find, tool_wc
+
+register_tool(
+    RegisteredTool(
+        name="ls",
+        func=tool_ls,
+        schema={
+            "name": "ls",
+            "description": "Liste Dateien im Projekt auf (analog zu bash ls/find).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "subdir": {
+                        "type": "string",
+                        "description": "Unterordner relativ zum Projektroot (Standard: '.')",
+                    },
+                    "pattern": {
+                        "type": "string",
+                        "description": "Glob-Muster für Dateien (Standard: '*')",
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximale Anzahl der Ergebnisse (Standard: 20)",
+                    },
+                },
+            },
+        },
+        output_type="string",
+    )
+)
+
+register_tool(
+    RegisteredTool(
+        name="cat",
+        func=tool_cat,
+        schema={
+            "name": "cat",
+            "description": "Lese Datei-Inhalt (analog zu bash cat/head).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Pfad zur Datei relativ zum Projektroot",
+                    },
+                    "max_chars": {
+                        "type": "integer",
+                        "description": "Maximale Anzahl der Zeichen (Standard: 4000)",
+                    },
+                },
+                "required": ["path"],
+            },
+        },
+        output_type="string",
+    )
+)
+
+register_tool(
+    RegisteredTool(
+        name="grep",
+        func=tool_grep,
+        schema={
+            "name": "grep",
+            "description": "Suche nach Text in Dateien (analog zu bash grep).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Suchbegriff (Groß-/Kleinschreibung wird ignoriert)",
+                    },
+                    "pattern": {
+                        "type": "string",
+                        "description": "Glob-Muster für Dateien (Standard: '*')",
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximale Anzahl der Treffer (Standard: 20)",
+                    },
+                    "context_lines": {
+                        "type": "integer",
+                        "description": "Anzahl der Kontext-Zeilen um Treffer (Standard: 2)",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+        output_type="string",
+    )
+)
+
+register_tool(
+    RegisteredTool(
+        name="find",
+        func=tool_find,
+        schema={
+            "name": "find",
+            "description": "Erweiterte Dateisuche (analog zu bash find).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "subdir": {
+                        "type": "string",
+                        "description": "Start-Verzeichnis (Standard: '.')",
+                    },
+                    "name_pattern": {
+                        "type": "string",
+                        "description": "Optionaler Name-Filter (z.B. '*.py')",
+                    },
+                    "type_filter": {
+                        "type": "string",
+                        "description": "Typ-Filter: 'f' für Dateien, 'd' für Verzeichnisse",
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximale Anzahl der Ergebnisse (Standard: 20)",
+                    },
+                },
+            },
+        },
+        output_type="string",
+    )
+)
+
+register_tool(
+    RegisteredTool(
+        name="wc",
+        func=tool_wc,
+        schema={
+            "name": "wc",
+            "description": "Zähle Zeilen, Wörter und Zeichen (analog zu bash wc).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Optionaler Dateipfad. Wenn nicht angegeben, werden alle passenden Dateien gezählt.",
+                    },
+                    "pattern": {
+                        "type": "string",
+                        "description": "Glob-Muster wenn path=None (Standard: '*')",
+                    },
+                },
+            },
+        },
+        output_type="string",
+    )
+)
+
+# --- Dummy Test Tools ---
+
+# Register dummy tools for testing tool-calling
+hello_world_tool_instance = HelloWorldTool()
+echo_tool_instance = EchoTool()
+counter_tool_instance = CounterTool()
+
+# My new simple hello tool
+simple_hello_tool_instance = SimpleHelloTool()
+register_tool(
+    RegisteredTool(
+        name="simple_hello",
+        func=simple_hello_tool_instance.forward,
+        schema={
+            "name": "simple_hello",
+            "description": simple_hello_tool_instance.description,
+            "parameters": {
+                "type": "object",
+                "properties": simple_hello_tool_instance.inputs,
+            },
+        },
+        output_type="string",
+    )
+)
+
+register_tool(
+    RegisteredTool(
+        name="say_hello",
+        func=hello_world_tool_instance.forward,
+        schema={
+            "name": "say_hello",
+            "description": hello_world_tool_instance.description,
+            "parameters": {
+                "type": "object",
+                "properties": hello_world_tool_instance.inputs,
+            },
+        },
+        output_type="string",
+    )
+)
+
+register_tool(
+    RegisteredTool(
+        name="echo_message",
+        func=echo_tool_instance.forward,
+        schema={
+            "name": "echo_message",
+            "description": echo_tool_instance.description,
+            "parameters": {
+                "type": "object",
+                "properties": echo_tool_instance.inputs,
+                "required": ["message"],
+            },
+        },
+        output_type="string",
+    )
+)
+
+register_tool(
+    RegisteredTool(
+        name="count_numbers",
+        func=counter_tool_instance.forward,
+        schema={
+            "name": "count_numbers",
+            "description": counter_tool_instance.description,
+            "parameters": {
+                "type": "object",
+                "properties": counter_tool_instance.inputs,
+                "required": ["count_to"],
+            },
+        },
+        output_type="string",
+    )
+)
+
 # --- Self-Inspection Tools (Introspection) ---
 
 # Register introspection tools as smolagents-compatible
@@ -885,6 +1125,7 @@ register_tool(
 
 # --- Accessor Functions ---
 
+
 def get_tool(tool_name: str) -> RegisteredTool | None:
     """Retrieve a tool by name."""
     return _TOOL_REGISTRY.get(tool_name)
@@ -899,10 +1140,14 @@ def list_all_tools() -> List[Dict[str, str]]:
     """Return a list of all registered tools with name and description."""
     tools = []
     for tool in _TOOL_REGISTRY.values():
-        tools.append({
-            "name": tool.name,
-            "description": tool.schema.get("description", "No description available")
-        })
+        tools.append(
+            {
+                "name": tool.name,
+                "description": tool.schema.get(
+                    "description", "No description available"
+                ),
+            }
+        )
     return sorted(tools, key=lambda x: x["name"])
 
 
@@ -923,7 +1168,9 @@ def get_tools_for_agent() -> List[Any]:
             smol_tools.append(smol_tool)
         except Exception as e:
             # Log but don't fail - skip problematic tools
-            print(f"Warning: Could not convert tool '{tool.name}' to smolagents format: {e}")
+            print(
+                f"Warning: Could not convert tool '{tool.name}' to smolagents format: {e}"
+            )
             continue
 
     return smol_tools

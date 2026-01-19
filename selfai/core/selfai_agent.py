@@ -169,6 +169,7 @@ def create_selfai_agent(
     max_steps: int = 10,
     verbose: bool = False,
     model_id: Optional[str] = None,
+    system_prompt: Optional[str] = None,
 ) -> SelfAIAgent:
     """
     Factory function to create SelfAI Agent.
@@ -180,6 +181,7 @@ def create_selfai_agent(
         max_steps: Max tool-calling iterations
         verbose: Enable verbose logging
         model_id: Optional model identifier
+        system_prompt: Optional system instructions for agent (ignored - we use tool-calling prompt)
 
     Returns:
         Configured SelfAIAgent instance
@@ -189,7 +191,53 @@ def create_selfai_agent(
     # Wrap LLM interface as smolagents Model
     model = _SelfAIModel(llm_interface, model_id=model_id)
 
-    # Create agent
+    # Build tool-calling system prompt for MiniMax
+    tool_descriptions = []
+    for tool in tools:
+        name = getattr(tool, 'name', 'unknown')
+        description = getattr(tool, 'description', 'No description')
+        inputs = getattr(tool, 'inputs', {})
+
+        # Format inputs
+        input_parts = []
+        for param_name, param_info in inputs.items():
+            param_type = param_info.get('type', 'any')
+            param_desc = param_info.get('description', '')
+            input_parts.append(f"{param_name}: {param_type} - {param_desc}")
+
+        input_str = ", ".join(input_parts) if input_parts else "no parameters"
+        tool_descriptions.append(f"- {name}({input_str}): {description}")
+
+    tools_text = "\n".join(tool_descriptions)
+
+    # Custom tool-calling prompt for MiniMax
+    tool_calling_prompt = f"""You are SelfAI, a helpful AI assistant with access to tools.
+
+{system_prompt if system_prompt else "You are a helpful assistant."}
+
+## Available Tools:
+{tools_text}
+
+## Tool Calling Format:
+When you need to use a tool, respond with EXACTLY this format:
+Action: {{"name": "tool_name", "arguments": {{"arg1": "value1", "arg2": "value2"}}}}
+
+IMPORTANT RULES:
+1. ONLY output "Action: {{...}}" when you want to use a tool (nothing else!)
+2. The JSON must be valid (use double quotes)
+3. After seeing the tool result, you can use another tool or give final answer
+4. To give final answer: Action: {{"name": "final_answer", "arguments": {{"answer": "your response"}}}}
+
+Examples:
+User: Say hello!
+Assistant: Action: {{"name": "say_hello", "arguments": {{}}}}
+
+User: Say hello to Max
+Assistant: Action: {{"name": "say_hello", "arguments": {{"name": "Max"}}}}
+"""
+
+    # Create agent WITHOUT custom prompt_templates (smolagents will inject tools automatically)
+    # Instead, we rely on our _SelfAIModel._parse_tool_calls() to parse "Action: {...}"
     agent = SelfAIAgent(
         model=model,
         tools=tools,
@@ -197,5 +245,9 @@ def create_selfai_agent(
         max_steps=max_steps,
         verbose=verbose,
     )
+
+    # Override the agent's system prompt
+    # HACK: Store it in model so it gets used
+    model.custom_system_prompt = tool_calling_prompt
 
     return agent
