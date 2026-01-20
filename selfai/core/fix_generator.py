@@ -80,16 +80,18 @@ class FixGenerator:
     - Tracks fix success rate
     """
 
-    def __init__(self, llm_interface, project_root: Path):
+    def __init__(self, llm_interface, project_root: Path, ui):
         """
         Initialize fix generator.
 
         Args:
             llm_interface: LLM interface for code generation
             project_root: Root directory of project
+            ui: The user interface object for feedback
         """
         self.llm = llm_interface
         self.project_root = Path(project_root)
+        self.ui = ui
         self.knowledge_base_path = project_root / "memory" / "error_fixes"
         self.knowledge_base_path.mkdir(parents=True, exist_ok=True)
 
@@ -117,6 +119,7 @@ class FixGenerator:
         analysis_prompt = self._build_analysis_prompt(error_pattern, example)
 
         # Get LLM analysis
+        self.ui.start_spinner("Analysiere Fehler und generiere Fix-Optionen...")
         try:
             response = self.llm.generate_response(
                 system_prompt="You are an expert Python debugger and error analyst. Analyze errors and suggest fixes.",
@@ -139,6 +142,9 @@ class FixGenerator:
                 options=[],
                 analysis=f"Failed to analyze error: {str(e)}"
             )
+        finally:
+            self.ui.stop_spinner("Analyse abgeschlossen.", level="success")
+
 
     def _build_analysis_prompt(self, pattern: ErrorPattern, example: ErrorEntry) -> str:
         """

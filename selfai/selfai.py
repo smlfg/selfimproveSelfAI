@@ -432,15 +432,13 @@ def _execute_merge_phase(
     merge_backend: dict[str, object],
     agent_manager: AgentManager,
     memory_system: MemorySystem,
-    ui: TerminalUI,
     execution_timeout: float | None,
-) -> bool:
+) -> str | None:
     llm_interface = merge_backend.get("interface")
     if llm_interface is None:
-        ui.status("Kein Merge-Backend verfügbar.", "warning")
-        return False
+        # This case should be handled by the caller via a log
+        return None
 
-    merge_label = merge_backend.get("label", "Merge")
     try:
         merge_token_limit = int(merge_backend.get("max_tokens", 4096) or 4096)
     except (TypeError, ValueError):
@@ -458,8 +456,7 @@ def _execute_merge_phase(
     plan_data = _load_plan_file(plan_path)
     merge_cfg = plan_data.get("merge") or {}
     if not merge_cfg:
-        ui.status("Kein Merge-Schritt im Plan definiert.", "info")
-        return True
+        return ""  # Not an error, just no merge to perform
 
     entries = _collect_subtask_entries(plan_data)
     outputs: list[str] = []
@@ -475,13 +472,11 @@ def _execute_merge_phase(
         outputs.append(block)
 
     if not outputs:
-        ui.status("Keine Subtask-Ergebnisse für den Merge gefunden.", "warning")
-        return False
+        return None  # Error case: no outputs found
 
     merge_agent = _select_merge_agent_from_plan(merge_cfg, agent_manager)
     if merge_agent is None:
-        ui.status("Kein Agent für Merge verfügbar.", "warning")
-        return False
+        return None  # Error case: no agent
 
     strategy = merge_cfg.get("strategy") or ""
     steps = merge_cfg.get("steps", []) or []
@@ -492,7 +487,6 @@ def _execute_merge_phase(
 
     combined_outputs = "\n\n".join(outputs)
 
-    # Get original goal from plan metadata
     original_goal = plan_data.get("metadata", {}).get("goal", "Unbekanntes Ziel")
 
     final_prompt = (
@@ -531,21 +525,15 @@ def _execute_merge_phase(
         final_prompt,
         limit=2,
     )
-    ui.status(
-        f"Merge-Ausgabe mit Agent '{merge_agent.display_name}' wird berechnet...",
-        "info",
-    )
 
     merge_response = ""
-    displayed = False
     use_streaming = hasattr(llm_interface, "stream_chat") or hasattr(
         llm_interface, "stream_generate_response"
     )
 
-    if use_streaming:
-        try:
+    try:
+        if use_streaming:
             chunks: list[str] = []
-            ui.stream_prefix(f"{merge_label}")
             if hasattr(llm_interface, "stream_chat"):
                 iterator = llm_interface.stream_chat(
                     system_prompt=merge_agent.system_prompt,
@@ -564,20 +552,8 @@ def _execute_merge_phase(
             for chunk in iterator:
                 if chunk:
                     chunks.append(chunk)
-                    ui.streaming_chunk(chunk)
-            print()
             merge_response = "".join(chunks)
-            displayed = True
-        except Exception as stream_exc:
-            ui.status(
-                f"Merge-Streaming fehlgeschlagen ({stream_exc}). Fallback auf Block-Modus.",
-                "warning",
-            )
-            print()
-            use_streaming = False
-
-    if not displayed:
-        try:
+        else:
             if hasattr(llm_interface, "chat"):
                 merge_response = llm_interface.chat(
                     system_prompt=merge_agent.system_prompt,
@@ -593,18 +569,13 @@ def _execute_merge_phase(
                     timeout=timeout_value,
                     max_output_tokens=merge_token_limit,
                 )
-            ui.stream_prefix(f"{merge_label}")
-            ui.typing_animation(merge_response)
-            displayed = True
-        except Exception as exc:  # pragma: no cover
-            ui.status(f"Merge-Ausgabe fehlgeschlagen: {exc}", "error")
-            return False
+    except Exception as exc:
+        # The caller should log this exception
+        return None
 
     if not merge_response or not merge_response.strip():
-        ui.status("Merge-Backend lieferte keinen Inhalt.", "warning")
-        return False
+        return None
 
-    # Clean up merge response: remove <think> tags and meta-commentary
     import re
 
     merge_response = re.sub(
@@ -612,20 +583,15 @@ def _execute_merge_phase(
     ).strip()
 
     if not merge_response:
-        ui.status("Merge-Backend lieferte nur <think> Tags, keinen Inhalt.", "warning")
-        return False
+        return None
 
     result_path = memory_system.save_conversation(
         merge_agent,
         final_prompt,
         merge_response,
     )
-
-    if not displayed:
-        ui.status("Merge-Ergebnis gespeichert.", "success")
-    else:
-        ui.status("Merge-Ergebnis abgeschlossen.", "success")
-
+    
+    merge_label = merge_backend.get("label", "Merge")
     plan_data.setdefault("metadata", {})
     plan_data["metadata"].update(
         {
@@ -641,7 +607,8 @@ def _execute_merge_phase(
         }
     )
     _save_plan_file(plan_path, plan_data)
-    return True
+    
+    return merge_response
 
 
 def _select_merge_backend(
@@ -1057,6 +1024,10 @@ def _handle_selfimprove(
 
         # Merge Phase (optional, but good for summary)
         if plan_data.get("merge"):
+            # Stop parallel view before merge
+            if hasattr(ui, "is_active") and ui.is_active:
+                ui.stop_parallel_view()
+                
             ui.status("Starte Merge-Phase (Zusammenfassung)...", "info")
             primary_backend = execution_backends[0]
             merge_backend = {
@@ -1068,14 +1039,21 @@ def _handle_selfimprove(
                 "model": "selfimprove",
             }
 
-            _execute_merge_phase(
+            merge_response = _execute_merge_phase(
                 plan_path,
                 merge_backend=merge_backend,
                 agent_manager=agent_manager,
                 memory_system=memory_system,
-                ui=ui,
                 execution_timeout=60.0,
             )
+
+            if merge_response:
+                ui.display_final_result(
+                    merge_response, title="Self-Improvement Merge Result"
+                )
+            else:
+                ui.status("Merge-Phase hat kein Ergebnis geliefert.", "warning")
+
 
     except Exception as e:
         ui.status(f"Fehler bei der Ausführung: {e}", "error")
@@ -1383,13 +1361,8 @@ def main():
 
     command_hint = "Bereit. Nachricht eingeben, "
     if planner_providers:
-        command_hint += "'/plan <Ziel>' für DPPM-Plan, '/planner list' für Provider, "
-    command_hint += "'/selfimprove <ziel>' für Selbst-Optimierung, "
-    command_hint += "'/toolcreate <name> <desc>' für neue Tools, "
-    command_hint += "'/errorcorrection' für Fehler-Analyse & Auto-Fix, "
-    command_hint += "'/tokens' für Token-Limits, '/extreme' für 64K Limits, "
-    command_hint += "'/context' für Context-Window Kontrolle, "
-    command_hint += "'/yolo' für Auto-Accept Modus, "
+        command_hint += "'/plan <Ziel>' für DPPM-Plan, "
+    command_hint += "'/status' für System-Status, '/help' für alle Commands, "
     command_hint += "'/switch <Name|Nummer>' zum Wechseln, 'quit' zum Beenden."
     ui.status(command_hint, "info")
 
@@ -1729,13 +1702,17 @@ Output ONLY the Python code, no markdown, no explanations."""
                 # Use first available backend
                 primary_backend = execution_backends[0]
                 tool_interface = primary_backend["interface"]
-
-                generated_code = tool_interface.generate_response(
-                    system_prompt="You are a Python code generator. Output only valid Python code.",
-                    user_prompt=tool_generation_prompt,
-                    history=[],
-                    max_output_tokens=token_limits.tool_creation_max_tokens,
-                )
+                
+                ui.start_spinner("Generiere Tool-Code...")
+                try:
+                    generated_code = tool_interface.generate_response(
+                        system_prompt="You are a Python code generator. Output only valid Python code.",
+                        user_prompt=tool_generation_prompt,
+                        history=[],
+                        max_output_tokens=token_limits.tool_creation_max_tokens,
+                    )
+                finally:
+                    ui.stop_spinner("Code-Generierung abgeschlossen.", level="success")
 
                 # Clean up code (remove markdown if present)
                 generated_code = generated_code.strip()
@@ -1852,7 +1829,9 @@ Output ONLY the Python code, no markdown, no explanations."""
             # Analyze each selected error
             primary_backend = execution_backends[0]
             fix_gen = FixGenerator(
-                llm_interface=primary_backend["interface"], project_root=project_root
+                llm_interface=primary_backend["interface"],
+                project_root=project_root,
+                ui=ui,
             )
 
             for pattern in patterns_to_analyze:
@@ -2324,87 +2303,30 @@ Output ONLY the Python code, no markdown, no explanations."""
                 dispatcher.run(keep_ui_open=True)
                 execution_time = time.time() - start_time
 
-                # Integrate Merge into the Dashboard
-                use_rich_parallel = (
-                    hasattr(ui, "add_merge_box")
-                    and hasattr(ui, "is_active")
-                    and ui.is_active
-                )
+                # Stop parallel view if it was running
+                if hasattr(ui, "is_active") and ui.is_active:
+                    ui.stop_parallel_view()
 
-                if use_rich_parallel:
-                    ui.add_merge_box()
-                    # We can use the 'MERGE' ID defined in parallel_stream_ui
-                    ui.status("Starte Merge & Synthese...", "info")
-
-                primary_backend = execution_backends[0]
-                default_merge_backend = {
-                    "label": primary_backend.get("label") or backend_label or "MiniMax",
-                    "type": primary_backend.get("type", "minimax"),
-                    "interface": primary_backend.get("interface"),
-                    "max_tokens": 2048,
-                    "name": primary_backend.get("name", "minimax"),
-                    "model": primary_backend.get("label")
-                    or primary_backend.get("name")
-                    or backend_label
-                    or "minimax",
-                    "timeout": getattr(planner_cfg, "execution_timeout", None)
-                    if planner_cfg
-                    else None,
-                }
-
-                merge_backend = default_merge_backend
-                if plan_data.get("merge"):
-                    # Only ask if not using parallel UI to avoid breaking layout, OR if interactive mode
-                    # Ideally we just use default or auto-select for seamless experience
-                    pass
+                ui.status("Ausführung abgeschlossen. Starte Merge & Synthese...", "info")
 
                 merge_timeout = getattr(planner_cfg, "execution_timeout", None)
+                merge_response = _execute_merge_phase(
+                    plan_path,
+                    merge_backend=default_merge_backend,
+                    agent_manager=agent_manager,
+                    memory_system=memory_system,
+                    execution_timeout=merge_timeout,
+                )
 
-                # We need to hook into the merge execution to route output to 'MERGE' box if using parallel UI
-                # For now, let's just let it run. If _execute_merge_phase uses ui.stream_prefix,
-                # we might need to adapt it.
-                # But wait! ui.stream_prefix is compatible with TerminalUI.
-                # ParallelStreamUI needs to route 'MERGE' output to the merge box.
-
-                # Hack: Temporarily wrap UI methods if using parallel UI
-                if use_rich_parallel:
-                    original_streaming_chunk = ui.streaming_chunk
-                    original_typing = ui.typing_animation
-
-                    def merge_stream_chunk(chunk):
-                        ui.add_response_chunk("MERGE", chunk)
-
-                    def merge_typing(text):
-                        ui.add_response_chunk("MERGE", text)
-
-                    ui.streaming_chunk = merge_stream_chunk
-                    ui.typing_animation = merge_typing
-                    ui.stream_prefix = lambda x: None  # Mute prefix
-
-                try:
-                    merge_success = _execute_merge_phase(
-                        plan_path,
-                        merge_backend=merge_backend,
-                        agent_manager=agent_manager,
-                        memory_system=memory_system,
-                        ui=ui,
-                        execution_timeout=merge_timeout,
-                    )
-                finally:
-                    # Restore UI methods
-                    if use_rich_parallel:
-                        ui.streaming_chunk = original_streaming_chunk
-                        ui.typing_animation = original_typing
-                        # NOW stop the UI
-                        ui.mark_subtask_complete("MERGE", success=merge_success)
-                        time.sleep(1.0)
-                        ui.stop_parallel_view()
-                        print()  # Clear line
-
-                # Show final status
-                if merge_success:
+                if merge_response:
+                    ui.display_final_result(merge_response, title="Plan Execution Result")
                     ui.status("Plan und Merge erfolgreich abgeschlossen.", "success")
-                else:
+                elif merge_response == "":  # No merge step in plan
+                    ui.status(
+                        "Plan erfolgreich abgeschlossen (kein Merge-Schritt definiert).",
+                        "success",
+                    )
+                else:  # Merge failed (returned None)
                     ui.status(
                         "Ausführung fertig, aber Merge fehlgeschlagen.", "warning"
                     )
@@ -2560,11 +2482,111 @@ Output ONLY the Python code, no markdown, no explanations."""
             continue
 
         # =============================================================================
+        # /help Command - Show comprehensive help
+        # =============================================================================
+        if user_input.lower() in ("help", "?", "/help", "h"):
+            ui.show_help()
+            continue
+
+        # =============================================================================
+        # /status Command - Show system status dashboard
+        # =============================================================================
+        if user_input.lower() in ("/status", "/info", "/sys"):
+            ui.show_status_dashboard(
+                execution_backends=execution_backends,
+                active_backend_index=active_chat_backend_index,
+                agent_manager=agent_manager,
+                memory_system=memory_system,
+                token_limits=token_limits,
+                config=config
+            )
+            continue
+
+        # =============================================================================
         # AGENT MODE: Custom Tool-Calling Agent Loop (MiniMax-Compatible!)
         # =============================================================================
         ENABLE_AGENT_MODE = getattr(config.system, "enable_agent_mode", True)
 
-        if ENABLE_AGENT_MODE and llm_interface:
+        # Smart Detection: Nur Agent Loop für komplexe Tasks aktivieren
+        def requires_agent_loop(user_input: str) -> bool:
+            """
+            Entscheidet ob der Agent Loop für diese Query nötig ist.
+
+            Agent Loop wird aktiviert für:
+            - Explizite Tool-Requests ("liste", "suche", "erstelle", "führe aus")
+            - Self-Introspection ("welche tools", "dein code", "wie funktioniert")
+            - Multi-Step Tasks ("analysiere und", "finde und", "erstelle und")
+            - Commands (/, beginnend)
+
+            Agent Loop wird NICHT aktiviert für:
+            - Einfache Wissensfragen ("Was ist...", "Erkläre...")
+            - Grüße ("Hallo", "Hi")
+            - Kurze Fragen (< 5 Wörter ohne Action-Verben)
+            """
+            user_lower = user_input.lower().strip()
+
+            # Commands aktivieren immer Agent (außer /switch, /memory)
+            if user_input.startswith("/") and not user_input.startswith(("/switch", "/memory")):
+                return True
+
+            # Tool-Action Keywords
+            tool_keywords = [
+                "liste", "list", "zeige", "show",
+                "suche", "search", "finde", "find",
+                "erstelle", "create", "schreibe", "write",
+                "führe aus", "execute", "run",
+                "lese", "read", "öffne", "open",
+                "analysiere", "analyze",
+                "teste", "test"
+            ]
+
+            # Self-Introspection Keywords
+            introspection_keywords = [
+                "welche tools", "deine tools", "your tools",
+                "dein code", "your code", "selfai code",
+                "wie funktioniert", "how does", "how do you",
+                "was kannst du", "what can you"
+            ]
+
+            # Multi-Step Indicators
+            multi_step_indicators = [" und ", " and ", " dann ", " danach "]
+
+            # Check für Action Keywords
+            if any(keyword in user_lower for keyword in tool_keywords):
+                return True
+
+            # Check für Self-Introspection
+            if any(keyword in user_lower for keyword in introspection_keywords):
+                return True
+
+            # Check für Multi-Step
+            if any(indicator in user_lower for indicator in multi_step_indicators):
+                return True
+
+            # Einfache Wissensfragen (nicht Agent)
+            simple_patterns = [
+                "was ist", "what is",
+                "erkläre", "explain",
+                "wie geht", "how to",
+                "warum", "why",
+                "hallo", "hi", "hey"
+            ]
+
+            # Wenn nur Wissensfrage ohne Action → kein Agent
+            word_count = len(user_input.split())
+            if word_count < 10 and any(pattern in user_lower for pattern in simple_patterns):
+                # Aber: Wenn zusätzlich Tool-Keywords → doch Agent
+                has_tool_keyword = any(kw in user_lower for kw in tool_keywords)
+                if not has_tool_keyword:
+                    return False
+
+            # Default: Bei Unsicherheit KEIN Agent (konservativ)
+            # User kann immer explizit Tools triggern wenn nötig
+            return False
+
+        use_agent = ENABLE_AGENT_MODE and requires_agent_loop(user_input)
+
+        if use_agent and llm_interface:
             try:
                 # Initialize agent lazily (once per session)
                 if "selfai_agent" not in locals() or selfai_agent is None:
@@ -2619,9 +2641,41 @@ Output ONLY the Python code, no markdown, no explanations."""
                 ui.status("⚠️ Fallback: Nutze direkten LLM-Call ohne Tools", "warning")
 
                 # Disable agent for rest of session and fall through
-                ENABLE_AGENT_MODE = False
-                selfai_agent = None
-                # Fall through to regular chat mode below (no continue here!)
+                use_agent = False
+                # Fall through to simple response mode below (no continue here!)
+
+        # =============================================================================
+        # SIMPLE RESPONSE MODE: Direct LLM call without tools
+        # =============================================================================
+        if not use_agent and llm_interface:
+            try:
+                # Simple direct response for knowledge questions
+                if hasattr(llm_interface, "generate_response"):
+                    response_text = llm_interface.generate_response(
+                        system_prompt=getattr(agent_manager.active_agent, "system_prompt", "You are SelfAI, a helpful AI assistant."),
+                        user_prompt=user_input,
+                        max_tokens=1024,
+                        temperature=0.7
+                    )
+                else:
+                    # Fallback method
+                    response_text = llm_interface.chat(
+                        system_prompt="You are SelfAI, a helpful AI assistant.",
+                        user_prompt=user_input
+                    )
+
+                # Display response
+                print(f"\n{ui.colorize('SelfAI', 'magenta')}: {response_text}\n")
+
+                # Save to memory
+                memory_system.save_conversation(
+                    agent_manager.active_agent,
+                    user_input,
+                    response_text,
+                )
+
+            except Exception as e:
+                ui.status(f"❌ LLM Error: {e}", "error")
 
 
 if __name__ == "__main__":

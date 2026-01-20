@@ -393,6 +393,46 @@ class ParallelStreamUI:
         with self.lock:
             self.subtasks.clear()
 
+    def display_final_result(self, content: str, title: str = "Final Result"):
+        """Stops the live view and prints the final content block."""
+        if self.is_active:
+            self.stop_parallel_view()
+
+        if not self.console:
+            # Should not happen if self.enabled is true, but as a safeguard
+            if self.fallback_ui:
+                self.fallback_ui.display_final_result(content, title)
+            return
+
+        # Use the console to clear and print for a clean slate.
+        self.console.clear()
+
+        # Reuse fallback UI's banner for consistency
+        if self.fallback_ui and hasattr(self.fallback_ui, "banner"):
+            self.fallback_ui.banner()
+
+        # Print a title for the final result
+        from rich.panel import Panel
+        from rich.text import Text
+        from rich.markdown import Markdown
+
+        self.console.print(
+            Panel(
+                Text(title, justify="center", style="bold green"),
+                border_style="green",
+            )
+        )
+
+        # Use rich's print to handle markdown and formatting
+        self.console.print(
+            Panel(
+                Markdown(content, style="bright_white"),
+                border_style="dim",  # Use a subtle border
+                title="Full Response",
+                title_align="left",
+            )
+        )
+
     # === Compatibility Methods für TerminalUI Interface ===
 
     def start_spinner(self, message: str):

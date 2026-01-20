@@ -159,6 +159,13 @@ class TerminalUI:
             if agent.description:
                 print(f"      {self.colorize(agent.description, 'cyan')}")
 
+    def display_final_result(self, content: str, title: str = "Final Result"):
+        """Clears the screen and prints the final content block."""
+        self.clear()
+        self.banner()
+        self.status(title, "success")
+        print(f"\n{content}")
+
     def show_plan(self, plan: dict) -> None:
         """Zeigt den vom Planner gelieferten JSON-Plan formatiert an."""
         print(self.colorize("\nGeplanter Ablauf (DPPM):", "bold"))
@@ -328,3 +335,192 @@ class TerminalUI:
             for line in think_clean.split('\n'):
                 print(f"  {self.colorize(line, 'cyan')}")
         print()  # Extra line after all thinks
+
+    def show_help(self) -> None:
+        """Zeigt umfassende Hilfe zu allen SelfAI Commands an."""
+        help_text = f"""
+{self.colorize("┌─────────────────────────────────────────────────────────────────────────┐", "cyan")}
+{self.colorize("│ 📖 SelfAI Command Reference                                             │", "magenta")}
+{self.colorize("├─────────────────────────────────────────────────────────────────────────┤", "cyan")}
+{self.colorize("│                                                                         │", "cyan")}
+{self.colorize("│  💬 CHAT                                                                │", "magenta")}
+{self.colorize("│     <Nachricht>       Normale Konversation mit aktuellem Agent          │", "cyan")}
+{self.colorize("│                                                                         │", "cyan")}
+{self.colorize("│  📋 PLANNING                                                            │", "magenta")}
+{self.colorize("│     /plan <Ziel>      DPPM Plan erstellen & ausführen                 │", "cyan")}
+{self.colorize("│     /planner list      Zeigt verfügbare Planner-Provider               │", "cyan")}
+{self.colorize("│     /planner use <Name> Wechselt aktiven Planner                        │", "cyan")}
+{self.colorize("│                                                                         │", "cyan")}
+{self.colorize("│  💾 MEMORY                                                               │", "magenta")}
+{self.colorize("│     /memory            Zeigt alle Memory-Kategorien                   │", "cyan")}
+{self.colorize("│     /memory clear       Löscht Konversationen                       │", "cyan")}
+{self.colorize("│                         Usage: /memory clear <category> [keep_n]      │", "cyan")}
+{self.colorize("│                                                                         │", "cyan")}
+{self.colorize("│  🤖 AGENTS                                                               │", "magenta")}
+{self.colorize("│     /switch <Agent>     Wechselt aktiven Agent (Name oder Nummer)      │", "cyan")}
+{self.colorize("│     /agents            Zeigt alle verfügbaren Agenten               │", "cyan")}
+{self.colorize("│                                                                         │", "cyan")}
+{self.colorize("│  ⚙️  SYSTEM                                                               │", "magenta")}
+{self.colorize("│     /status            Zeigt System-Status & Konfiguration          │", "cyan")}
+{self.colorize("│     /tokens            Zeigt/ändert Token-Limits                     │", "cyan")}
+{self.colorize("│     /context           Zeigt/ändert Context Window                   │", "cyan")}
+{self.colorize("│     /yolo              Aktiviert/Deaktiviert Auto-Accept Modus        │", "cyan")}
+{self.colorize("│                                                                         │", "cyan")}
+{self.colorize("│  🔧 TOOLS                                                               │", "magenta")}
+{self.colorize("│     /toolcreate <name>  Erstellt neues Tool via LLM                   │", "cyan")}
+{self.colorize("│     /errorcorrection   Startet Fehler-Analyse & Auto-Fix             │", "cyan")}
+{self.colorize("│     /selfimprove <ziel> Startet Selbst-Optimierung                     │", "cyan")}
+{self.colorize("│                                                                         │", "cyan")}
+{self.colorize("│  ❓ OTHER                                                               │", "magenta")}
+{self.colorize("│     /help              Zeigt diese Hilfe                            │", "cyan")}
+{self.colorize("│     quit               Beendet SelfAI                               │", "cyan")}
+{self.colorize("│                                                                         │", "cyan")}
+{self.colorize("└─────────────────────────────────────────────────────────────────────────┘", "cyan")}
+"""
+        print(help_text)
+
+    def show_status_dashboard(
+        self,
+        execution_backends: list,
+        active_backend_index: int,
+        agent_manager,
+        memory_system,
+        token_limits,
+        config
+    ) -> None:
+        """Zeigt umfassendes System-Status-Dashboard an."""
+
+        # Header
+        print(self.colorize("\n┌─────────────────────────────────────────────────────────────────────────┐", "cyan"))
+        print(self.colorize("│ 📊 SelfAI System Status                                                 │", "magenta"))
+        print(self.colorize("├─────────────────────────────────────────────────────────────────────────┤", "cyan"))
+        print(self.colorize("│                                                                         │", "cyan"))
+
+        # 1. LLM Backends
+        print(self.colorize("│  🤖 LLM BACKENDS                                                        │", "magenta"))
+        for idx, backend in enumerate(execution_backends):
+            is_active = idx == active_backend_index
+            status_icon = "✅" if is_active else "⚪"
+            backend_name = backend.get("name", "unknown")
+            backend_type = backend.get("type", "unknown")
+            backend_label = backend.get("label", backend_name)
+
+            active_marker = self.colorize(" (aktiv)", "green") if is_active else ""
+            type_badge = self.colorize(f"[{backend_type}]", "yellow")
+            print(f"│   {status_icon} {backend_label:30s} {type_badge}{active_marker}              │")
+        print(self.colorize("│                                                                         │", "cyan"))
+
+        # 2. System Resources (mit psutil)
+        try:
+            import psutil
+            mem = psutil.virtual_memory()
+            cpu_percent = psutil.cpu_percent(interval=0.1)
+            disk = psutil.disk_usage(".")
+
+            print(self.colorize("│  💻 SYSTEM RESOURCES                                                    │", "magenta"))
+
+            # RAM Bar
+            ram_percent = mem.percent
+            ram_bar_length = 20
+            filled = int(ram_bar_length * ram_percent / 100)
+            bar = "█" * filled + "░" * (ram_bar_length - filled)
+            bar_color = "red" if ram_percent > 80 else "yellow" if ram_percent > 50 else "green"
+            print(f"│   RAM: {self.colorize(bar, bar_color)} {ram_percent:3.0f}%                              │")
+
+            # CPU
+            cpu_bar_length = int(cpu_percent / 5)
+            cpu_bar = self.colorize("█" * cpu_bar_length + "░" * (20 - cpu_bar_length), "green")
+            print(f"│   CPU: {cpu_bar} {cpu_percent:3.0f}%                              │")
+
+            # Disk
+            disk_percent = disk.percent
+            disk_filled = int(ram_bar_length * disk_percent / 100)
+            disk_bar = "█" * disk_filled + "░" * (ram_bar_length - disk_filled)
+            disk_color = "red" if disk_percent > 80 else "yellow" if disk_percent > 50 else "green"
+            print(f"│   Disk: {self.colorize(disk_bar, disk_color)} {disk_percent:3.0f}%                              │")
+
+            print(self.colorize("│                                                                         │", "cyan"))
+        except ImportError:
+            print(self.colorize("│   psutil nicht installiert - System-Ressourcen nicht verfügbar         │", "yellow"))
+            print(self.colorize("│                                                                         │", "cyan"))
+        except Exception:
+            print(self.colorize("│   Fehler beim Abruf der System-Ressourcen                              │", "yellow"))
+            print(self.colorize("│                                                                         │", "cyan"))
+
+        # 3. Active Agent
+        print(self.colorize("│  🤖 ACTIVE AGENT                                                        │", "magenta"))
+        if agent_manager and agent_manager.active_agent:
+            agent = agent_manager.active_agent
+            agent_colored = self.colorize(agent.display_name, agent.color)
+            print(f"│   {agent_colored} ({agent.key})                                             │")
+            if agent.description:
+                desc_short = agent.description[:60] if len(agent.description) > 60 else agent.description
+                print(f"│   {desc_short}                                              │")
+        else:
+            print(f"│   Kein Agent aktiv                                                      │")
+        print(self.colorize("│                                                                         │", "cyan"))
+
+        # 4. Memory System
+        print(self.colorize("│  💾 MEMORY SYSTEM                                                        │", "magenta"))
+        if memory_system:
+            try:
+                # Categories
+                categories = []
+                if memory_system.memory_dir.exists():
+                    for cat_dir in memory_system.memory_dir.iterdir():
+                        if cat_dir.is_dir() and not cat_dir.name.startswith("."):
+                            count = len(list(cat_dir.glob("*.txt")))
+                            categories.append(f"{cat_dir.name}: {count}")
+
+                if categories:
+                    cat_str = ", ".join(categories[:3])
+                    print(f"│   Categories: {cat_str}                                      │")
+                else:
+                    print(f"│   Keine Konversationen gespeichert                                      │")
+
+                # Plans
+                if hasattr(memory_system, 'plan_dir') and memory_system.plan_dir.exists():
+                    plan_files = list(memory_system.plan_dir.glob("*.json"))
+                    print(f"│   Plans: {len(plan_files)} gespeichert                                              │")
+
+                # Context Window
+                if hasattr(memory_system, 'context_window_minutes'):
+                    print(f"│   Context Window: {memory_system.context_window_minutes} Minuten                                    │")
+            except Exception as exc:
+                print(f"│   Fehler beim Abruf: {str(exc)[:50]}                              │")
+        else:
+            print(f"│   Memory System nicht verfügbar                                         │")
+        print(self.colorize("│                                                                         │", "cyan"))
+
+        # 5. Configuration
+        print(self.colorize("│  ⚙️  CONFIGURATION                                                       │", "magenta"))
+        if config:
+            # Streaming
+            streaming_status = self.colorize("✅ Enabled", "green") if config.system.streaming_enabled else self.colorize("❌ Disabled", "red")
+            print(f"│   Streaming: {streaming_status}                                                 │")
+
+            # Agent Mode
+            agent_mode_status = self.colorize("✅ Enabled", "green") if config.system.enable_agent_mode else self.colorize("❌ Disabled", "red")
+            print(f"│   Agent Mode: {agent_mode_status}                                                │")
+
+            # Planner
+            planner_status = self.colorize("✅ Enabled", "green") if config.planner.enabled else self.colorize("❌ Disabled", "red")
+            print(f"│   Planner: {planner_status}                                                    │")
+
+            # Merge
+            merge_status = self.colorize("✅ Enabled", "green") if config.merge.enabled else self.colorize("❌ Disabled", "red")
+            print(f"│   Merge: {merge_status}                                                      │")
+        print(self.colorize("│                                                                         │", "cyan"))
+
+        # 6. Token Limits
+        print(self.colorize("│  🎯 TOKEN LIMITS                                                        │", "magenta"))
+        if token_limits:
+            print(f"│   Planner: {token_limits.planner_max_tokens}                                                   │")
+            print(f"│   Merge: {token_limits.merge_max_tokens}                                                     │")
+            print(f"│   Chat: {token_limits.chat_max_tokens}                                                      │")
+        else:
+            print(f"│   Token Limits nicht verfügbar                                              │")
+        print(self.colorize("│                                                                         │", "cyan"))
+
+        # Footer
+        print(self.colorize("└─────────────────────────────────────────────────────────────────────────┘", "cyan"))
