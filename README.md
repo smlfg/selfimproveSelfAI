@@ -1,335 +1,179 @@
-# 🤖 SelfAI - Autonomous Multi-Agent System with Self-Improvement
+# SelfAI — Autonomous Multi-Agent System with Self-Improvement
 
-**SelfAI** is an advanced AI agent system featuring a custom tool-calling loop, self-improvement capabilities, and multi-layer safety mechanisms. Built for **MiniMax M2** with comprehensive identity enforcement and introspection tools.
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
-[![MiniMax M2](https://img.shields.io/badge/LLM-MiniMax%20M2-green.svg)](https://api.minimax.io/)
+
+> **Status: Research prototype — not production-ready.** Core chat and the DPPM pipeline are runnable with a MiniMax API key, but agent mode (tool-calling), NPU acceleration, and `/selfimprove` are experimental. Expect rough edges, mixed German/English docs, and incomplete roadmap items.
+
+**SelfAI** is an experimental terminal agent that plans multi-step work, calls tools, and can propose changes to its own codebase — with layered safety guardrails. It evolved from a Snapdragon NPU chatbot into a provider-agnostic **Distributed Planning Problem Model (DPPM)** pipeline backed primarily by **MiniMax M2**.
+
+**Repository:** [github.com/smlfg/selfimproveSelfAI](https://github.com/smlfg/selfimproveSelfAI)
 
 ---
 
-## 🚀 Key Features
+## What it does
 
-### 1. **Custom Agent Loop** (MiniMax-Compatible)
-- ✅ **560-line custom implementation** replacing heavyweight frameworks
-- ✅ Native support for MiniMax's `Action: {...}` format
-- ✅ Multi-step reasoning with automatic tool chaining
-- ✅ Clean, structured UI with progress tracking
-
-### 2. **24 Integrated Tools**
-- **Introspection Tools:** `list_selfai_files`, `read_selfai_code`, `search_selfai_code`
-- **Filesystem Tools:** `create_file`, `read_file`, `write_file`, `list_directory`
-- **Shell Tools:** `execute_shell_command`
-- **Test Tools:** `say_hello`, `echo_message`, `count_numbers`
-
-### 3. **Self-Improvement System** (`/selfimprove`)
-- 🛡️ **Multi-layer safety:** Protected files, user approvals, automatic backups
-- 📊 **Proposal-based workflow:** Analyze → Propose → User selects → Execute
-- 🔒 **Anti-sabotage:** Core files are never modified automatically
-- 💾 **Git-based rollback:** Every change is versioned
-
-### 4. **Identity Enforcement**
-- 🎭 **Identity Core:** Prevents model from claiming to be "an AI assistant"
-- 🔍 **Reflection Validation:** Ensures responses maintain SelfAI identity
-- 🛡️ **Guardrails:** Auto-correction of identity leaks
-- 📈 **Metrics Tracking:** Monitor identity enforcement quality
-
-### 5. **Clean Terminal UI**
-- 📦 Structured output blocks (no messy spinners)
-- 🔢 Step-by-step progress (`Step 1/15: Analyzing...`)
-- 🎨 Color-coded status messages
-- 📊 Compact tool call/result display
+| Capability | Status |
+|---|---|
+| Interactive terminal chat | Works with MiniMax API |
+| DPPM pipeline (`/plan` → execute → merge) | Works; planner/merge providers configurable |
+| Multi-backend fallback (MiniMax → NPU → CPU) | MiniMax primary; NPU/CPU need extra setup |
+| Tool-calling agent loop | **Experimental** — off by default in `config.yaml` |
+| `/selfimprove` (analyze → propose → approve → apply) | **Experimental** — proposal workflow with protected files |
+| Identity enforcement & introspection tools | Implemented; quality varies by model |
+| Web UI, RAG, parallel subtasks, Docker | **Not yet** — see [Roadmap](#roadmap) |
 
 ---
 
-## 📦 Installation
+## Architecture
 
-### Prerequisites
-- Python 3.12+
-- MiniMax API Key ([Get one here](https://api.minimax.io/))
-- Git (for version control)
+SelfAI uses a layered design: terminal UI → DPPM application layer → domain services (agents, memory, tools) → interchangeable LLM backends.
 
-### Quick Start
+![SelfAI architecture diagram](docs/images/selfai-architecture.png)
+
+```
+User → Terminal UI → [Planner] → Plan → [Executor] → Subtasks → [Merger] → Response
+                              ↓                    ↓
+                         Agent Manager         Tool Registry
+                         Memory System         Identity Enforcer
+                              ↓
+                    MiniMax → NPU/QNN → CPU/GGUF  (fallback chain)
+```
+
+**Deep dives:** [docs/README.md](docs/README.md) · [CLAUDE.md](CLAUDE.md) · [SelfAiSoftwareArchitektur.md](SelfAiSoftwareArchitektur.md)
+
+---
+
+## SelfAI lineage
+
+SelfAI grew through four pivots documented in [Die_Komplette_Geschichte_von_SELFAI.md](Die_Komplette_Geschichte_von_SELFAI.md):
+
+1. **NPU-first chatbot** — Local inference on Snapdragon X Elite; fragile QNN tooling led to a hybrid CPU fallback.
+2. **Proactive planner** — Ollama-based DPPM prototype: decompose goals → execute subtasks → merge results.
+3. **Reproducible dev** — Dev containers and codified environments to end "works on my machine" drift.
+4. **Super-agent** — Provider-agnostic config, MiniMax as default, tool system (filesystem, shell, introspection), and `/selfimprove` with anti-sabotage protections.
+
+This repo (`selfimproveSelfAI`) is the **self-improvement and MiniMax-focused fork** of that lineage — same DPPM core, extended with custom agent loops, identity enforcement, and guarded self-modification.
+
+---
+
+## Quick start
+
+**Prerequisites:** Python 3.12+, [MiniMax API key](https://api.minimax.io/), Git.
 
 ```bash
-# 1. Clone repository
 git clone https://github.com/smlfg/selfimproveSelfAI.git
 cd selfimproveSelfAI
 
-# 2. Create virtual environment
 python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
 
-# 3. Install dependencies
 pip install -r requirements.txt
 
-# 4. Configure API key
-cp .env.example .env
-# Edit .env and add: MINIMAX_API_KEY=your_key_here
+cp .env.example .env               # add MINIMAX_API_KEY=...
+cp config.yaml.template config.yaml
 
-# 5. Run SelfAI
 python selfai/selfai.py
 ```
 
----
+**Try these commands** after launch:
 
-## 🎯 Usage Examples
+| Command | What it does |
+|---|---|
+| Plain chat | Ask a question — uses configured LLM backend |
+| `/plan <goal>` | Run the DPPM pipeline (needs planner enabled in config) |
+| `/switch <agent>` | Switch persona (`code_helfer`, `projektmanager`, …) |
+| `/memory` | Inspect or clear conversation memory |
+| `/selfimprove analyze …` | Read-only improvement analysis (experimental) |
 
-### Basic Chat with Tool Calling
+> **Agent mode** (autonomous tool-calling) is disabled by default. Set `system.enable_agent_mode: true` in `config.yaml` only if you accept the experimental risk. See [AGENT_MODE_FIXES_FINAL.md](AGENT_MODE_FIXES_FINAL.md).
 
-```bash
-$ python selfai/selfai.py
-
-Du: Say hello!
-
-======================================================================
-🤖 AGENT REASONING
-======================================================================
-
-📝 Step 1/15: Analyzing...
-   🔧 Calling: say_hello()
-   ✅ Result: 🎉 Hello World! Tool-Calling funktioniert perfekt! 🚀
-
-✅ Complete after 1 step
-======================================================================
-
-SelfAI: 🎉 Hello World! Tool-Calling funktioniert perfekt! 🚀
-```
-
-### Introspection (Read Own Code)
-
-```bash
-Du: Liste alle Tools auf
-
-======================================================================
-🤖 AGENT REASONING
-======================================================================
-
-📝 Step 1/15: Analyzing...
-   🔧 Calling: list_selfai_files(subdirectory='tools')
-   ✅ Result: 📁 SelfAI Python Files (12 Dateien) in 'tools/':...
-
-📝 Step 2/15: Analyzing...
-   🔧 Calling: read_selfai_code(file_path='tools/tool_registry.py')
-   ✅ Result: 📄 File: selfai/tools/tool_registry.py...
-
-✅ Complete after 2 steps
-======================================================================
-```
-
-### Self-Improvement (Read-Only Analysis)
-
-```bash
-Du: /selfimprove analyze selfai architecture without modifying anything
-
-ℹ️ 🔍 Starte Analyse für Ziel: analyze selfai architecture...
-ℹ️ Analysiere Projekt-Struktur...
-ℹ️ Generiere Verbesserungsvorschläge (LLM)...
-
-============================================================
-  📋 VERBESSERUNGSVORSCHLÄGE
-============================================================
-
-  [1] Optimize Custom Agent Loop Performance
-      Reduce token usage in multi-step reasoning
-      Files: selfai/core/custom_agent_loop.py
-      Aufwand: 20 min | Impact: 25%
-
-  [2] Add Caching for Introspection Tools
-      Cache file listings to reduce disk I/O
-      Files: selfai/tools/introspection_tools.py
-      Aufwand: 15 min | Impact: 15%
-
-============================================================
-Wähle Optionen (z.B. '1', '1,2', 'all') oder 'q' zum Abbrechen.
-```
+**More setup paths:** [QUICK_START.md](QUICK_START.md) · [docs/BUILD.md](docs/BUILD.md) · [docs/SECRETS_AND_CONFIG.md](docs/SECRETS_AND_CONFIG.md)
 
 ---
 
-## 🛡️ Safety Mechanisms
-
-SelfAI includes comprehensive safety measures to prevent self-sabotage:
-
-### Protected Files (Never Modified)
-```python
-SELFIMPROVE_PROTECTED_FILES = [
-    'selfai/selfai.py',           # Main orchestration
-    'selfai/config_loader.py',    # Config system
-    'selfai/core/agent_manager.py', # Agent management
-    'selfai/tools/tool_registry.py', # Tool system
-]
-```
-
-### Sensitive Files (User Approval Required)
-```python
-SELFIMPROVE_SENSITIVE_FILES = [
-    'selfai/core/execution_dispatcher.py',
-    'selfai/core/planner_minimax_interface.py',
-    'selfai/core/memory_system.py',
-]
-```
-
-### Allowed Patterns (Safe Modifications)
-```python
-SELFIMPROVE_ALLOWED_PATTERNS = [
-    'selfai/core/*_interface.py',  # LLM interfaces
-    'selfai/tools/*.py',            # Tools
-    'selfai/ui/*.py',               # UI improvements
-]
-```
-
-**See:** [SELFIMPROVE_SAFETY_SUMMARY.md](SELFIMPROVE_SAFETY_SUMMARY.md) for full documentation.
-
----
-
-## 📁 Project Structure
+## Project layout
 
 ```
 selfimproveSelfAI/
 ├── selfai/
-│   ├── core/
-│   │   ├── custom_agent_loop.py       # Custom agent implementation
-│   │   ├── minimax_interface.py       # MiniMax API client
-│   │   ├── self_improvement_engine.py # Self-improvement logic
-│   │   ├── identity_enforcer.py       # Identity enforcement
-│   │   └── ...
-│   ├── tools/
-│   │   ├── tool_registry.py           # Tool catalog
-│   │   ├── introspection_tools.py     # Self-inspection tools
-│   │   ├── filesystem_tools.py        # File operations
-│   │   └── ...
-│   ├── ui/
-│   │   └── terminal_ui.py             # Terminal interface
-│   └── selfai.py                      # Main entry point
-├── config.yaml                         # Configuration
-├── .env                                # API keys (not committed)
-├── requirements.txt                    # Dependencies
-└── README.md                           # This file
+│   ├── selfai.py                 # Main CLI entry point
+│   ├── core/                     # Agent loop, DPPM, LLM interfaces, identity
+│   ├── tools/                    # Tool registry (introspection, filesystem, shell, …)
+│   ├── ui/                       # Terminal UI themes
+│   └── agents/                   # Persona configs & system prompts
+├── docs/                         # Curated documentation index + images
+├── config.yaml.template          # Copy to config.yaml
+├── .env.example                  # API keys (not committed)
+└── requirements.txt
 ```
 
 ---
 
-## 🔧 Configuration
+## Safety (self-improvement)
 
-Edit `config.yaml` to customize:
+`/selfimprove` uses a proposal workflow — analyze, present options, require user approval before any write. Core orchestration files are protected; sensitive paths need explicit consent. Automatic backups and git versioning support rollback.
 
-```yaml
-# MiniMax Configuration
-minimax:
-  api_base: "https://api.minimax.io/v1"
-  model: "openai/MiniMax-M2"
-  enabled: true
+| Tier | Examples |
+|---|---|
+| **Protected** (never auto-modified) | `selfai.py`, `config_loader.py`, `agent_manager.py`, `tool_registry.py` |
+| **Sensitive** (user approval) | `execution_dispatcher.py`, `memory_system.py`, planner interfaces |
+| **Allowed** (safer targets) | `selfai/tools/*.py`, `selfai/ui/*.py`, `*_interface.py` |
 
-# Agent Mode Settings
-system:
-  enable_agent_mode: true      # Enable tool-calling
-  agent_max_steps: 15          # Max reasoning steps
-  agent_verbose: true          # Show detailed output
-  streaming_enabled: true      # Enable streaming
-```
+Full details: [SELFIMPROVE_SAFETY_SUMMARY.md](SELFIMPROVE_SAFETY_SUMMARY.md) · [ANTI_SABOTAGE_SAFETY.md](ANTI_SABOTAGE_SAFETY.md)
 
 ---
 
-## 🧪 Testing
+## Documentation
 
-### Test Custom Agent Loop
+The repo has 80+ markdown files from iterative development. Start here:
+
+| Doc | Purpose |
+|---|---|
+| **[docs/README.md](docs/README.md)** | **Main index** — all docs organized by topic |
+| [QUICK_START.md](QUICK_START.md) | 5-minute setup |
+| [CLAUDE.md](CLAUDE.md) | Full architecture reference |
+| [SELFIMPROVE_GUIDE.md](SELFIMPROVE_GUIDE.md) | Self-improvement workflow |
+| [UI_GUIDE.md](UI_GUIDE.md) | Terminal UI themes & commands |
+| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Common failures |
+
+---
+
+## Testing
+
 ```bash
-python test_custom_agent_loop.py
-```
-
-### Test Tool Calling
-```bash
-python test_tool_calling_direct.py
-```
-
-### Test Self-Improvement (Safe Mode)
-```bash
-./test_selfimprove_quick.sh
+python test_custom_agent_loop.py      # Agent loop smoke test
+python test_tool_calling_direct.py    # Direct tool-calling test
+./test_selfimprove_quick.sh           # Self-improve analysis (safe mode)
 ```
 
 ---
 
-## 📚 Documentation
+## Roadmap
 
-- **[ANTI_SABOTAGE_SAFETY.md](ANTI_SABOTAGE_SAFETY.md)** - Complete safety documentation
-- **[SELFIMPROVE_SAFETY_SUMMARY.md](SELFIMPROVE_SAFETY_SUMMARY.md)** - Quick safety guide
-- **[UI_IMPROVEMENTS.md](UI_IMPROVEMENTS.md)** - UI design decisions
-- **[CLAUDE.md](CLAUDE.md)** - Architecture overview
-
----
-
-## 🎓 Use Cases
-
-### 1. **Autonomous Code Analysis**
-SelfAI can read and analyze its own codebase, providing insights into architecture and suggesting improvements.
-
-### 2. **Safe Self-Improvement**
-With multi-layer safety mechanisms, SelfAI can propose and implement improvements without breaking core functionality.
-
-### 3. **Multi-Step Task Execution**
-Complex tasks are automatically broken down into steps with tool calls chained together seamlessly.
-
-### 4. **Identity-Aware Conversations**
-Unlike generic chatbots, SelfAI maintains a consistent identity as an autonomous agent system.
-
----
-
-## 🐛 Known Issues & Fixes
-
-### Issue: `UnboundLocalError` on startup
-**Fixed in:** commit `13752fc`
-**Solution:** Initialize `selfai_agent = None` before main loop
-
-### Issue: `/selfimprove` JSON parse errors
-**Fixed in:** commit `13752fc`
-**Solution:** Added XML tag removal and direct API call for structured output
-
----
-
-## 🤝 Contributing
-
-Contributions welcome! Areas for improvement:
-
-1. **Tool Ecosystem:** Add more specialized tools
-2. **Testing:** Expand test coverage
-3. **Documentation:** Improve inline documentation
-4. **Safety:** Enhance anti-sabotage mechanisms
-5. **UI:** Add web-based interface option
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## 🙏 Acknowledgments
-
-- **MiniMax** for the M2 model with excellent tool-calling support
-- **Claude Code** for collaborative development assistance
-- **smolagents** for initial inspiration (replaced with custom loop)
-
----
-
-## 📞 Contact
-
-- **GitHub:** [@smlfg](https://github.com/smlfg)
-- **Repository:** [selfimproveSelfAI](https://github.com/smlfg/selfimproveSelfAI)
-
----
-
-## 🚀 Roadmap
-
-- [ ] Add parallel subtask execution in DPPM pipeline
+- [ ] Parallel subtask execution in DPPM pipeline
 - [ ] Web-based UI with real-time updates
-- [ ] Vector database integration for RAG
-- [ ] Multi-model ensemble (combine multiple LLMs)
-- [ ] Plugin system for custom tool loading
+- [ ] Vector database / RAG integration
+- [ ] Multi-model ensemble
+- [ ] Plugin system for custom tools
 - [ ] Docker containerization
 
 ---
 
-**Built with ❤️ by the SelfAI Team**
+## Contributing
 
-🤖 *"A self-improving von Neumann machine that's safe to run!"*
+Contributions welcome — especially tests, doc clarity, and safety hardening. See scattered design notes in [docs/README.md](docs/README.md) before large changes.
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+---
+
+## Acknowledgments
+
+- **MiniMax** — M2 model and tool-calling format
+- **smolagents** — early inspiration (replaced by custom agent loop)
+- **Qualcomm / AnythingLLM / Ollama** — NPU and local inference paths
